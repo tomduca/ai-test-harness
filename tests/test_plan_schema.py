@@ -43,6 +43,7 @@ def test_navigation_cannot_leave_the_site(path):
     with pytest.raises(ValidationError):
         Goto(path=path, step=0)
 
+
 def test_locator_needs_exactly_one_strategy():
     with pytest.raises(ValidationError, match="exactly one"):
         Locator()

@@ -27,8 +27,12 @@ Role = Literal[
 
 # Site-relative path: "/" alone, or "/" + non-slash, no whitespace anywhere ("//x" leaves the site).
 SitePath = Annotated[
-    str, Field(pattern=r"^/([^/\s]\S*)?$", description="Site-relative path, e.g. '/' or '/en/'")
+    str,
+    Field(
+        pattern=r"^/([^/\s]\S*)?$", description="Site-relative path, e.g. '/' or '/en/'"
+    ),
 ]
+
 
 class Scope(BaseModel):
     """Container that narrows a locator, e.g. the navigation landmark."""
