@@ -2,13 +2,15 @@
 
 from collections.abc import Callable
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 
 from ai_test_harness.llm import get_llm
 from ai_test_harness.schemas.plan import TestPlan
 from ai_test_harness.schemas.scenario import Scenario
 from ai_test_harness.state import ScenarioState
+
+MAX_SELF_CORRECTIONS = 2
 
 SYSTEM_PROMPT = """\
 You are a senior QA automation engineer. Translate ONE Gherkin scenario into a
@@ -28,7 +30,7 @@ Rules:
 
 
 class PlannerError(RuntimeError):
-    """Raised when the LLM plan is valid JSON but inconsistent with the scenario."""
+    """Raised when the LLM cannot produce a plan consistent with the scenario."""
 
 
 def render_scenario(scenario: Scenario) -> str:
@@ -38,6 +40,29 @@ def render_scenario(scenario: Scenario) -> str:
         for row in step.data_table or []:
             lines.append("      | " + " | ".join(row) + " |")
     return "\n".join(lines)
+
+
+def find_plan_problems(plan: TestPlan, scenario: Scenario) -> list[str]:
+    """Semantic checks the schema cannot express: the plan must fit THIS scenario."""
+    problems = []
+    step_count = len(scenario.steps)
+    covered = {action.step for action in plan.actions}
+
+    if unknown := sorted(step for step in covered if step >= step_count):
+        problems.append(f"actions reference steps that do not exist: {unknown}")
+    if uncovered := sorted(set(range(step_count)) - covered):
+        problems.append(f"steps without any action: {uncovered}")
+
+    asserted = {a.step for a in plan.actions if a.action.startswith("expect_")}
+    outcome_steps = [
+        i for i, step in enumerate(scenario.steps) if step.type == "Outcome"
+    ]
+    if unasserted := [i for i in outcome_steps if i in covered and i not in asserted]:
+        problems.append(
+            f"outcome steps must be verified with expect_* actions: {unasserted}"
+        )
+
+    return problems
 
 
 def build_messages(state: ScenarioState) -> list:
@@ -57,21 +82,38 @@ def make_planner(llm: Runnable | None = None) -> Callable[[ScenarioState], dict]
     def planner(state: ScenarioState) -> dict:
         structured_llm = llm or get_llm(TestPlan)
         scenario = state["scenario"]
-        plan = structured_llm.invoke(build_messages(state))
+        messages = build_messages(state)
+        log = []
+
+        for corrections in range(MAX_SELF_CORRECTIONS + 1):
+            plan = structured_llm.invoke(messages)
+            problems = find_plan_problems(plan, scenario)
+            if not problems:
+                break
+            log.append(f"planner: invalid plan ({'; '.join(problems)})")
+            # Show the LLM its own answer and exactly what is wrong with it.
+            messages = [
+                *messages,
+                AIMessage(plan.model_dump_json()),
+                HumanMessage(
+                    "That plan is invalid:\n- "
+                    + "\n- ".join(problems)
+                    + "\nReturn a corrected plan for the same scenario."
+                ),
+            ]
+        else:
+            raise PlannerError(
+                f"{scenario.id}: no valid plan after {MAX_SELF_CORRECTIONS} "
+                f"self-corrections: {problems}"
+            )
 
         # Identifiers belong to the harness, never to the LLM.
         plan = plan.model_copy(update={"scenario_id": scenario.id})
-
-        step_count = len(scenario.steps)
-        if unknown := sorted({a.step for a in plan.actions if a.step >= step_count}):
-            raise PlannerError(
-                f"{scenario.id}: actions reference unknown steps {unknown}"
-            )
-
         attempt = state["attempts"] + 1
-        log = [f"planner: attempt {attempt}, {len(plan.actions)} actions"]
-        if uncovered := sorted(set(range(step_count)) - {a.step for a in plan.actions}):
-            log.append(f"planner: WARNING steps without actions {uncovered}")
+        log.append(
+            f"planner: attempt {attempt}, {len(plan.actions)} actions, "
+            f"{corrections} self-corrections"
+        )
         return {"plan": plan, "attempts": attempt, "log": log}
 
     return planner
