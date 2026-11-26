@@ -1,7 +1,7 @@
 """Provider-agnostic chat model factory with an ordered fallback chain."""
 
 import os
-from functools import lru_cache
+from functools import cache
 
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
@@ -30,7 +30,7 @@ def _build(spec: str) -> BaseChatModel:
     return init_chat_model(spec, **kwargs)
 
 
-@lru_cache(maxsize=None)
+@cache
 def get_llm(schema: type[BaseModel] | None = None) -> Runnable:
     """Return the configured model chain, optionally bound to a structured-output schema.
 
