@@ -1,5 +1,5 @@
 from ai_test_harness.graph import MAX_ATTEMPTS, build_graph
-from ai_test_harness.schemas.plan import TestPlan
+from ai_test_harness.schemas.plan import Goto, TestPlan
 from ai_test_harness.schemas.results import ExecutionResult, Verdict
 from ai_test_harness.schemas.scenario import Scenario, Step
 from ai_test_harness.state import initial_state
@@ -13,7 +13,7 @@ def fake_planner(state):
     attempt = state["attempts"] + 1
     return {
         "plan": TestPlan(
-            scenario_id=state["scenario"].id, actions=[f"attempt {attempt}"]
+            scenario_id=state["scenario"].id, actions=[Goto(path="/", step=0)]
         ),
         "attempts": attempt,
         "log": [f"planner:{attempt}"],
