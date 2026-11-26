@@ -4,13 +4,17 @@ from ai_test_harness.schemas.results import ExecutionResult, Verdict
 from ai_test_harness.schemas.scenario import Scenario, Step
 from ai_test_harness.state import initial_state
 
-SCENARIO = Scenario(id="demo::s", feature="Demo", name="s", uri="demo.feature", steps=[Step(text="a")])
+SCENARIO = Scenario(
+    id="demo::s", feature="Demo", name="s", uri="demo.feature", steps=[Step(text="a")]
+)
 
 
 def fake_planner(state):
     attempt = state["attempts"] + 1
     return {
-        "plan": TestPlan(scenario_id=state["scenario"].id, actions=[f"attempt {attempt}"]),
+        "plan": TestPlan(
+            scenario_id=state["scenario"].id, actions=[f"attempt {attempt}"]
+        ),
         "attempts": attempt,
         "log": [f"planner:{attempt}"],
     }
@@ -30,7 +34,9 @@ def scripted_evaluator(*outcomes):
     def evaluator(state):
         outcome = next(queue)
         return {
-            "verdict": Verdict(scenario_id=state["scenario"].id, outcome=outcome, reason="scripted"),
+            "verdict": Verdict(
+                scenario_id=state["scenario"].id, outcome=outcome, reason="scripted"
+            ),
             "log": [f"evaluator:{outcome}"],
         }
 
@@ -53,8 +59,12 @@ def test_test_defect_triggers_a_new_plan():
     assert result["attempts"] == 2
     assert result["verdict"].outcome == "pass"
     assert result["log"] == [
-        "planner:1", "executor", "evaluator:test_defect",
-        "planner:2", "executor", "evaluator:pass",
+        "planner:1",
+        "executor",
+        "evaluator:test_defect",
+        "planner:2",
+        "executor",
+        "evaluator:pass",
     ]
 
 

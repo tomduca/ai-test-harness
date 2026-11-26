@@ -27,18 +27,22 @@ def test_feature_tags_are_inherited():
 
 
 def test_data_table_is_preserved():
-    menu = next(s for s in load_feature(NAV) if s.name.startswith("The main menu offers"))
+    menu = next(
+        s for s in load_feature(NAV) if s.name.startswith("The main menu offers")
+    )
     assert menu.steps[-1].data_table == [
-        ["Proyectos"], ["En el aire"], ["QSOs"], ["Taller"], ["Directorio"]
+        ["Proyectos"],
+        ["En el aire"],
+        ["QSOs"],
+        ["Taller"],
+        ["Directorio"],
     ]
 
 
 def test_duplicate_scenario_names_are_rejected(tmp_path):
     spec = tmp_path / "dup.feature"
     spec.write_text(
-        "Feature: Dup\n"
-        "  Scenario: Same\n    Given a\n"
-        "  Scenario: Same\n    Given b\n"
+        "Feature: Dup\n  Scenario: Same\n    Given a\n  Scenario: Same\n    Given b\n"
     )
     with pytest.raises(SpecError, match="duplicate"):
         load_feature(spec)

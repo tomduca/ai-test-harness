@@ -11,7 +11,6 @@ class Station(BaseModel):
     city: str
 
 
-structured_llm = get_llm().with_structured_output(Station)
 result = get_llm(Station).invoke(
     "Extract the station data: LU2MET operates from Mendoza, Argentina, grid square FF57oc."
 )
