@@ -36,11 +36,12 @@ def test_empty_plan_is_rejected():
         TestPlan(scenario_id="x", actions=[])
 
 
-@pytest.mark.parametrize("path", ["https://evil.example", "//evil.example", "en/"])
+@pytest.mark.parametrize(
+    "path", ["https://evil.example", "//evil.example", "en/", "/\n", "/ en/", "/en/\t"]
+)
 def test_navigation_cannot_leave_the_site(path):
     with pytest.raises(ValidationError):
         Goto(path=path, step=0)
-
 
 def test_locator_needs_exactly_one_strategy():
     with pytest.raises(ValidationError, match="exactly one"):
