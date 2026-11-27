@@ -110,9 +110,10 @@ def make_planner(llm: Runnable | None = None) -> Callable[[ScenarioState], dict]
         # Identifiers belong to the harness, never to the LLM.
         plan = plan.model_copy(update={"scenario_id": scenario.id})
         attempt = state["attempts"] + 1
+        model = getattr(structured_llm, "last_model", None)
         log.append(
             f"planner: attempt {attempt}, {len(plan.actions)} actions, "
-            f"{corrections} self-corrections"
+            f"{corrections} self-corrections, model={model}"
         )
         return {"plan": plan, "attempts": attempt, "log": log}
 
