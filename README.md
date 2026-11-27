@@ -1,4 +1,5 @@
 # ai-test-harness
+[![checks](https://github.com/tomduca/ai-test-harness/actions/workflows/checks.yml/badge.svg)](https://github.com/tomduca/ai-test-harness/actions/workflows/checks.yml)
 
 An AI-powered test harness built with **LangGraph** and **Playwright** (Python). LLM agents turn
 Gherkin acceptance criteria into executable test plans, run them in a real browser, and classify
@@ -38,16 +39,26 @@ execution, rule-based evaluation after it.
 ```text
 $ uv run ai-test-harness
 pass         navigation::each-menu-item-takes-the-visitor-to-its-content[1]  (attempts: 1)
-...
+pass         navigation::each-menu-item-takes-the-visitor-to-its-content[2]  (attempts: 1)
+pass         navigation::each-menu-item-takes-the-visitor-to-its-content[3]  (attempts: 1)
+pass         navigation::each-menu-item-takes-the-visitor-to-its-content[4]  (attempts: 1)
+pass         navigation::each-menu-item-takes-the-visitor-to-its-content[5]  (attempts: 1)
 pass         navigation::the-home-page-loads-cleanly  (attempts: 1)
 product_bug  navigation::the-main-menu-offers-exactly-the-expected-items  (attempts: 1)
-             step 1 expect_items: the element exists but the assertion failed.
-             Expected: ['Proyectos', 'En el aire', 'QSOs', 'Taller', 'Directorio']
-             Actual:   ['Proyectos', 'En el aire', 'Mapa', 'QSOs', 'Taller', 'Directorio']
+             step 1 expect_items: the element exists but the assertion failed. Locator expected to have text '['Proyectos', 'En el aire', 'QSOs', 'Taller', 'Directorio']'
+             Actual value: ['Proyectos', 'En el aire', 'Mapa', 'QSOs', 'Taller', 'Directorio'] 
+             Call log:
+               - Expect "to_have_text" get_by_role("navigation").get_by_role("link") with timeout 5000ms
+               - waiting for get_by_
 product_bug  navigation::switching-the-site-language-to-english  (attempts: 2)
-             step 3 expect_items: ... Actual: ['Projects', 'On the air', 'Map', 'QSOs', ...]
+             step 3 expect_items: the element exists but the assertion failed. Locator expected to have text '['Projects', 'On the air', 'QSOs', 'Workshop', 'Directory']'
+             Actual value: ['Projects', 'On the air', 'Map', 'QSOs', 'Workshop', 'Directory'] 
+             Call log:
+               - Expect "to_have_text" get_by_role("navigation").get_by_role("link") with timeout 5000ms
+               - waiting for get_by_r
 
 8 scenarios: 6 pass, 2 product_bug, 0 test_defect, 0 infra_error
+
 ```
 
 The language scenario shows the retry loop: attempt 1 scoped the "EN" link to the navigation
