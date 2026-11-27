@@ -8,8 +8,9 @@ def main() -> None:
 
     for final in finals:
         verdict = final["verdict"]
+        retried = ", retried after infra_error" if final.get("infra_retried") else ""
         print(
-            f"{verdict.outcome:12} {verdict.scenario_id}  (attempts: {final['attempts']})"
+            f"{verdict.outcome:12} {verdict.scenario_id}  (attempts: {final['attempts']}{retried})"
         )
         if verdict.outcome != "pass":
             reason = verdict.reason[:1000].replace("\n", "\n             ")
