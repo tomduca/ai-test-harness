@@ -218,9 +218,13 @@ def make_executor(
         slug = re.sub(r"[^a-z0-9]+", "-", plan.scenario_id.lower()).strip("-")
         # One folder per attempt: evidence from a retry never overwrites the previous one.
         evidence_dir = reports_dir / run_id / slug / f"attempt-{state['attempts']}"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        plan_file = evidence_dir / "plan.json"
+        plan_file.write_text(plan.model_dump_json(indent=2))
         result = execute_plan(
             plan, base_url=base_url, evidence_dir=evidence_dir, timeout_ms=timeout_ms
         )
+        result.evidence.insert(0, str(plan_file))
         counts = {
             s: sum(r.status == s for r in result.actions)
             for s in ("passed", "failed", "skipped")
