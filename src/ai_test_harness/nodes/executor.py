@@ -225,6 +225,9 @@ def make_executor(
             plan, base_url=base_url, evidence_dir=evidence_dir, timeout_ms=timeout_ms
         )
         result.evidence.insert(0, str(plan_file))
+        result_file = evidence_dir / "execution.json"
+        result.evidence.append(str(result_file))
+        result_file.write_text(result.model_dump_json(indent=2))
         counts = {
             s: sum(r.status == s for r in result.actions)
             for s in ("passed", "failed", "skipped")
