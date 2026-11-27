@@ -49,6 +49,10 @@ Running log of design decisions, known limitations and findings. The README summ
 - `/api/qso` returns an undocumented `call_logged` field (contract v0.1).
 - The home page takes ~5 s to reach the `load` event (third-party embeds).
 - First full run: 8 scenarios, 6 pass, 2 product_bug (one was a harness false positive, see above).
+- A Dependabot PR failed CI because its branch predated a formatting fix on `main`, not because of
+  the update itself. Confirmed from the CI log, then regenerated with `@dependabot recreate`.
+  Release notes for checkout v7 reviewed: the breaking change (fork PRs in `pull_request_target`)
+  does not affect this repo, which uses `pull_request`.
 
 ## Bugs found in the harness itself
 
