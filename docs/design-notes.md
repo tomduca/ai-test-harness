@@ -30,6 +30,10 @@ Running log of design decisions, known limitations and findings. The README summ
   the `checks` workflow runs lint + all harness tests on Linux for every push and PR. CI caught a
   file committed before the hook existed. Dependabot keeps actions and dependencies updated, and
   every update PR goes through `checks`.
+  - **Infra errors are retried once per run, after 60 s; nothing else ever is.** A run in CI ended
+  in `infra_error` because Groq hit its tokens-per-minute limit while Gemini returned 503. Retried
+  scenarios are flagged in the output and the job summary. Product bugs are never retried, so
+  intermittent bugs stay visible.
 
 ## Known limitations
 
