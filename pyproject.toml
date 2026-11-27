@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ai-test-harness = "ai_test_harness:main"
+ai-test-harness = "ai_test_harness.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.13.10,<0.14.0"]

@@ -14,6 +14,7 @@ from ai_test_harness.schemas.results import Verdict
 from ai_test_harness.schemas.scenario import Scenario
 from ai_test_harness.specs_loader import load_specs
 from ai_test_harness.state import initial_state
+from ai_test_harness.target import Target
 
 
 def _run_one(graph, scenario: Scenario) -> dict:
@@ -74,13 +75,20 @@ def run_scenarios(
     return finals
 
 
-def run_specs(specs_dir: Path = Path("specs"), only: str | None = None) -> list[dict]:
-    cache_dir = os.getenv(
-        "PLAN_CACHE_DIR", ".plan-cache"
-    )  # empty string disables the cache
-    cache = PlanCache(Path(cache_dir), planner_fingerprint()) if cache_dir else None
-    graph = build_graph(make_planner(cache=cache), make_executor(), evaluator)
-    scenarios = [s for s in load_specs(specs_dir) if not only or only in s.id]
+def run_specs(target: Target, only: str | None = None) -> list[dict]:
+    cache_root = os.getenv("PLAN_CACHE_DIR", ".plan-cache")  # empty string disables it
+    cache = (
+        PlanCache(Path(cache_root) / target.name, planner_fingerprint(target))
+        if cache_root
+        else None
+    )
+    executor = make_executor(
+        base_url=os.getenv("BASE_URL")
+        or target.base_url,  # BASE_URL: e.g. a staging site
+        reports_dir=Path(os.getenv("REPORTS_DIR", "reports")) / target.name,
+    )
+    graph = build_graph(make_planner(cache=cache, target=target), executor, evaluator)
+    scenarios = [s for s in load_specs(target.specs_dir) if not only or only in s.id]
     # Default 60 s: Groq's tokens-per-minute window resets every minute.
     delay = float(os.getenv("INFRA_RETRY_DELAY_S", "60"))
     return run_scenarios(graph, scenarios, infra_retry_delay_s=delay, cache=cache)
@@ -94,13 +102,15 @@ OUTCOME_ICONS = {
 }
 
 
-def write_github_summary(finals: list[dict]) -> None:
+def write_github_summary(
+    finals: list[dict], title: str = "ai-test-harness results"
+) -> None:
     """Append a results table to the GitHub Actions job summary (no-op outside CI)."""
     path = os.getenv("GITHUB_STEP_SUMMARY")
     if not path:
         return
     lines = [
-        "## ai-test-harness results",
+        f"## {title}",
         "",
         "| | Scenario | Outcome | Attempts |",
         "|---|---|---|---|",

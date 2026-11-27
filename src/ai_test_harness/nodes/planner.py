@@ -14,6 +14,7 @@ from ai_test_harness.plan_cache import PlanCache
 from ai_test_harness.schemas.plan import TestPlan
 from ai_test_harness.schemas.scenario import Scenario
 from ai_test_harness.state import ScenarioState
+from ai_test_harness.target import Target
 
 MAX_SELF_CORRECTIONS = 2
 
@@ -36,7 +37,8 @@ REPEATABLE_ROLES = {
 }
 API_ASSERTIONS = {"expect_status", "expect_contract", "expect_json"}
 
-SYSTEM_PROMPT = """\
+# Generic web-testing guidance only. Site-specific hints come from the target.
+BASE_PROMPT = """\
 You are a senior QA automation engineer. Translate ONE Gherkin scenario into a
 test plan, using ONLY the actions defined in the output schema.
 
@@ -49,11 +51,9 @@ Browser (UI) rules:
 - "I am on the home page" means: goto "/". For other pages, goto the path quoted in the step.
 - Prefer locators by role + accessible name. Use css only as a last resort.
 - Menus usually live inside the "navigation" landmark: scope them with within.role="navigation".
-- Result and validation messages usually live in a region with role "status".
 - To type into a field, use fill and locate the field by its label.
 - "No X is shown" means expect_hidden.
-- The site UI is in Spanish. Use the literal texts quoted in the scenario, symbols included.
-- Labels may be rendered in uppercase by CSS: keep exact=false unless exactness matters.
+- Use the literal texts quoted in the scenario, symbols included.
 
 API rules (steps that say "through the API" or talk about responses):
 - Call the endpoint with api_get. expect_status, expect_contract and expect_json always
@@ -69,6 +69,16 @@ API rules (steps that say "through the API" or talk about responses):
 
 class PlannerError(RuntimeError):
     """Raised when the LLM cannot produce a plan consistent with the scenario."""
+
+
+def system_prompt(target: Target | None = None) -> str:
+    if target is None:
+        return BASE_PROMPT
+    hints = [f"- The UI is in {target.language}."]
+    hints += [f"- {hint}" for hint in target.planner_hints]
+    return (
+        f"{BASE_PROMPT}\nSite under test ({target.name}):\n" + "\n".join(hints) + "\n"
+    )
 
 
 def render_scenario(scenario: Scenario) -> str:
@@ -88,10 +98,10 @@ def api_reference() -> str:
     )
 
 
-def planner_fingerprint() -> str:
-    """Changes whenever the prompt, the action vocabulary or the API contracts change."""
+def planner_fingerprint(target: Target | None = None) -> str:
+    """Changes whenever the prompt (hints included), the vocabulary or the contracts change."""
     material = (
-        SYSTEM_PROMPT
+        system_prompt(target)
         + json.dumps(TestPlan.model_json_schema(), sort_keys=True)
         + api_reference()
     )
@@ -148,13 +158,14 @@ def find_plan_problems(plan: TestPlan, scenario: Scenario) -> list[str]:
         and a.value.lower() in ("true", "false")
     ]:
         problems.append(
-            f"expect_json values must be JSON booleans (true/false), not strings, at steps {stringly}"
+            "expect_json values must be JSON booleans (true/false), not strings, "
+            f"at steps {stringly}"
         )
 
     return problems
 
 
-def build_messages(state: ScenarioState) -> list:
+def build_messages(state: ScenarioState, target: Target | None = None) -> list:
     scenario = state["scenario"]
     content = render_scenario(scenario)
     if "@api" in scenario.tags and (reference := api_reference()):
@@ -167,11 +178,13 @@ def build_messages(state: ScenarioState) -> list:
             f"Previous plan:\n{state['plan'].model_dump_json(indent=2)}\n\n"
             "Return a corrected plan."
         )
-    return [SystemMessage(SYSTEM_PROMPT), HumanMessage(content)]
+    return [SystemMessage(system_prompt(target)), HumanMessage(content)]
 
 
 def make_planner(
-    llm: Runnable | None = None, cache: PlanCache | None = None
+    llm: Runnable | None = None,
+    cache: PlanCache | None = None,
+    target: Target | None = None,
 ) -> Callable[[ScenarioState], dict]:
     def planner(state: ScenarioState) -> dict:
         scenario = state["scenario"]
@@ -188,7 +201,7 @@ def make_planner(
                 }
 
         structured_llm = llm or get_llm(TestPlan)
-        messages = build_messages(state)
+        messages = build_messages(state, target)
         log = []
 
         for corrections in range(MAX_SELF_CORRECTIONS + 1):

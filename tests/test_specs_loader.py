@@ -4,7 +4,7 @@ import pytest
 
 from ai_test_harness.specs_loader import SpecError, load_feature
 
-NAV = Path("specs/features/navigation.feature")
+NAV = Path("targets/lu2met/specs/navigation.feature")
 
 
 def test_outline_is_expanded_into_one_scenario_per_example():

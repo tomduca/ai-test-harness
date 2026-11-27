@@ -52,8 +52,8 @@ jobs:
       - name: Run the harness against the live site
         env:
           ONLY: ${{ inputs.only }}
-        run: uv run ai-test-harness "$ONLY"
-
+        run: uv run ai-test-harness run --target lu2met --only "$ONLY"
+        
       - name: Upload evidence (plans, results, traces, screenshots)
         if: always()
         uses: actions/upload-artifact@v7

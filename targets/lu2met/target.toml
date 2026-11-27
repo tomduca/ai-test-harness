@@ -1,0 +1,10 @@
+# Everything the harness needs to know about this site. The core has no site knowledge.
+name = "lu2met"
+base_url = "https://www.lu2met.ar"
+language = "Spanish"
+
+# Site-specific guidance for the planner (it cannot see the page).
+planner_hints = [
+  "Result and validation messages live in a region with role 'status'.",
+  "Menu labels are rendered in uppercase by CSS: keep exact=false unless exactness matters.",
+]

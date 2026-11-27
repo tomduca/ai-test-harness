@@ -5,6 +5,7 @@ from ai_test_harness.nodes.planner import (
     PlannerError,
     find_plan_problems,
     make_planner,
+    planner_fingerprint,
     render_scenario,
 )
 from ai_test_harness.plan_cache import PlanCache
@@ -23,6 +24,7 @@ from ai_test_harness.schemas.plan import (
 from ai_test_harness.schemas.results import Verdict
 from ai_test_harness.schemas.scenario import Scenario, Step
 from ai_test_harness.state import initial_state
+from ai_test_harness.target import Target
 
 SCENARIO = Scenario(
     id="navigation::menu",
@@ -228,3 +230,24 @@ def test_retries_never_use_the_cache(tmp_path):
     state = {**initial_state(SCENARIO), "attempts": 1}
     make_planner(llm, cache=cache)(state)
     assert len(llm.calls) == 1
+
+
+def test_target_hints_reach_the_system_prompt(tmp_path):
+    target = Target(
+        name="demo",
+        base_url="https://example.test",
+        language="Spanish",
+        planner_hints=["Messages live in a status region."],
+        root=tmp_path,
+    )
+    llm = FakeLLM(GOOD_PLAN)
+    make_planner(llm, target=target)(initial_state(SCENARIO))
+    system = llm.calls[0][0].content
+    assert "The UI is in Spanish." in system
+    assert "Messages live in a status region." in system
+
+
+def test_changing_a_hint_invalidates_cached_plans(tmp_path):
+    target = Target(name="demo", base_url="https://example.test", root=tmp_path)
+    edited = target.model_copy(update={"planner_hints": ["a new hint"]})
+    assert planner_fingerprint(target) != planner_fingerprint(edited)

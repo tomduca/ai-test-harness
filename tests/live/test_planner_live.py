@@ -10,7 +10,7 @@ pytestmark = pytest.mark.live
 
 
 def test_llm_plans_the_menu_scenario():
-    scenarios = load_feature(Path("specs/features/navigation.feature"))
+    scenarios = load_feature(Path("targets/lu2met/specs/navigation.feature"))
     scenario = next(s for s in scenarios if s.name.startswith("The main menu offers"))
 
     plan = make_planner()(initial_state(scenario))["plan"]
