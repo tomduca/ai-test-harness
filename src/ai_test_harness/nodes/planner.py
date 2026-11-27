@@ -11,6 +11,8 @@ from ai_test_harness.schemas.scenario import Scenario
 from ai_test_harness.state import ScenarioState
 
 MAX_SELF_CORRECTIONS = 2
+# Actions that target ONE element: a role without a name matches every element of that role.
+SINGLE_TARGET_ACTIONS = {"click", "expect_visible", "expect_text"}
 
 SYSTEM_PROMPT = """\
 You are a senior QA automation engineer. Translate ONE Gherkin scenario into a
@@ -61,7 +63,14 @@ def find_plan_problems(plan: TestPlan, scenario: Scenario) -> list[str]:
         problems.append(
             f"outcome steps must be verified with expect_* actions: {unasserted}"
         )
-
+    if vague := [
+        a.step
+        for a in plan.actions
+        if a.action in SINGLE_TARGET_ACTIONS and a.locator.role and not a.locator.name
+    ]:
+        problems.append(
+            f"locators that target one element need role + name, at steps {vague}"
+        )
     return problems
 
 

@@ -7,7 +7,14 @@ from ai_test_harness.nodes.planner import (
     make_planner,
     render_scenario,
 )
-from ai_test_harness.schemas.plan import Click, ExpectItems, Goto, Locator, TestPlan
+from ai_test_harness.schemas.plan import (
+    Click,
+    ExpectItems,
+    ExpectVisible,
+    Goto,
+    Locator,
+    TestPlan,
+)
 from ai_test_harness.schemas.results import Verdict
 from ai_test_harness.schemas.scenario import Scenario, Step
 from ai_test_harness.state import initial_state
@@ -121,3 +128,20 @@ def test_self_corrections_are_bounded():
     with pytest.raises(PlannerError, match="no valid plan"):
         make_planner(llm)(initial_state(SCENARIO))
     assert len(llm.calls) == MAX_SELF_CORRECTIONS + 1
+
+
+def test_single_target_locators_need_a_name():
+    # Found on the real site: role without a name matched 26 links / every heading
+    # (strict mode violation). Lists (expect_items) legitimately match many elements.
+    vague = TestPlan(
+        scenario_id="x",
+        actions=[
+            Click(locator=Locator(role="link"), step=0),
+            ExpectVisible(locator=Locator(role="heading"), step=1),
+            ExpectItems(locator=Locator(role="link"), items=["Proyectos"], step=1),
+        ],
+    )
+    problems = find_plan_problems(vague, SCENARIO)
+    assert problems == [
+        "locators that target one element need role + name, at steps [0, 1]"
+    ]
