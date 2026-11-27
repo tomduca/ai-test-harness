@@ -30,6 +30,7 @@ Running log of design decisions, known limitations and findings. The README summ
 - Console-error checks include third-party embeds (YouTube, Clublog): needs a domain filter.
 - Lazy-loaded images are not checked unless they were loaded.
 - The model that produced each plan is not recorded yet.
+- LLM plans are not deterministic: the same scenario can get different locators on different runs. Each attempt's plan.json is kept as evidence.
 
 ## Findings on the system under test
 
