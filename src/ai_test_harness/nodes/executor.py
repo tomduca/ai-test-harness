@@ -1,28 +1,34 @@
 """Executor node: runs a TestPlan with Playwright, deterministically, and collects evidence."""
 
+import json
 import os
 import re
 import time
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from playwright.sync_api import ConsoleMessage, Page, expect, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator as PlaywrightLocator
+from pydantic import ValidationError
 
+from ai_test_harness.contracts import CONTRACTS
 from ai_test_harness.schemas.plan import Locator, TestPlan
 from ai_test_harness.schemas.results import ActionResult, ExecutionResult
 from ai_test_harness.state import ScenarioState
 
-# If one of these fails, the page is in an unknown state: the remaining actions are skipped.
+# If one of these fails, the state is unknown: the remaining actions are skipped.
 # Failed assertions (expect_*) are soft: they are recorded and execution continues.
-INTERACTIONS = {"goto", "click"}
+INTERACTIONS = {"goto", "click", "fill", "api_get"}
 
 MAX_ERROR_CHARS = 600
 ANSI_CODES = re.compile(r"\x1b\[[0-9;]*m")
+_MISSING = object()
 
 # Broken = finished loading with no pixels, or still pending without being lazy-loaded.
 BROKEN_IMAGES_JS = """
@@ -62,6 +68,43 @@ def _clean(exc: Exception) -> str:
     return ANSI_CODES.sub("", str(exc)).strip()[:MAX_ERROR_CHARS]
 
 
+@dataclass
+class ApiResponse:
+    url: str
+    status: int
+    text: str
+
+    def json_body(self) -> Any:
+        try:
+            return json.loads(self.text)
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"response is not JSON: {self.text[:200]!r}") from exc
+
+
+def _get_path(body: Any, path: str) -> Any:
+    """Follow a dot path like 'qsos.0.band' through dicts and lists."""
+    current = body
+    for part in path.split("."):
+        if isinstance(current, list) and part.isdigit() and int(part) < len(current):
+            current = current[int(part)]
+        elif isinstance(current, dict) and part in current:
+            current = current[part]
+        else:
+            raise AssertionError(f"field '{path}' not found in the response")
+    return current
+
+
+def _same(actual: Any, expected: Any) -> bool:
+    """Equality that never confuses booleans with numbers (in Python, True == 1)."""
+    if isinstance(actual, bool) or isinstance(expected, bool):
+        return (
+            isinstance(actual, bool)
+            and isinstance(expected, bool)
+            and actual == expected
+        )
+    return actual == expected
+
+
 class ActionRunner:
     """One handler per action type: `_<action name>`. No interpretation, no LLM."""
 
@@ -70,6 +113,8 @@ class ActionRunner:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout_ms
         self.console_errors: list[str] = []
+        self.api_calls: list[str] = []
+        self.last_response: ApiResponse | None = None
         page.on("console", self._on_console)
         page.on("pageerror", lambda exc: self.console_errors.append(str(exc)))
 
@@ -80,14 +125,22 @@ class ActionRunner:
     def run(self, action) -> None:
         getattr(self, f"_{action.action}")(action)
 
+    # --- Browser -------------------------------------------------------------
+
     def _goto(self, a):
         self.page.goto(self.base_url + a.path)
 
     def _click(self, a):
         resolve(self.page, a.locator).click()
 
+    def _fill(self, a):
+        resolve(self.page, a.locator).fill(a.value)
+
     def _expect_visible(self, a):
         expect(resolve(self.page, a.locator)).to_be_visible(timeout=self.timeout)
+
+    def _expect_hidden(self, a):
+        expect(resolve(self.page, a.locator)).to_be_hidden(timeout=self.timeout)
 
     def _expect_text(self, a):
         expect(resolve(self.page, a.locator)).to_contain_text(
@@ -115,6 +168,88 @@ class ActionRunner:
         if broken := self.page.evaluate(BROKEN_IMAGES_JS):
             raise AssertionError(f"{len(broken)} image(s) failed to load: {broken[:5]}")
 
+    # --- API (assertions act on the last api_get response) -------------------
+
+    def _api_get(self, a):
+        params = {p.name: p.value for p in a.params}
+        response = self.page.context.request.get(
+            self.base_url + a.path, params=params or None, timeout=self.timeout * 3
+        )
+        self.last_response = ApiResponse(
+            url=response.url, status=response.status, text=response.text()
+        )
+        self.api_calls.append(f"GET {response.url} -> {response.status}")
+
+    def _response(self) -> ApiResponse:
+        if self.last_response is None:
+            raise AssertionError("no API response to check: api_get must come first")
+        return self.last_response
+
+    def _expect_status(self, a):
+        response = self._response()
+        if response.status != a.status:
+            raise AssertionError(
+                f"expected HTTP {a.status}, got {response.status}: {response.text[:200]}"
+            )
+
+    def _expect_contract(self, a):
+        try:
+            CONTRACTS[a.contract].model_validate_json(self._response().text)
+        except ValidationError as exc:
+            raise AssertionError(
+                f"response does not match contract '{a.contract}': {exc}"
+            ) from exc
+
+    def _expect_json(self, a):
+        actual = _get_path(self._response().json_body(), a.field)
+
+        if a.op == "equals":
+            if not _same(actual, a.value):
+                raise AssertionError(
+                    f"'{a.field}' expected {a.value!r}, got {actual!r}"
+                )
+
+        elif a.op in ("empty", "not_empty"):
+            if not isinstance(actual, (list, str, dict)):
+                raise AssertionError(f"'{a.field}' has no length: {actual!r}")
+            if (len(actual) == 0) != (a.op == "empty"):
+                raise AssertionError(
+                    f"'{a.field}' expected to be {a.op.replace('_', ' ')}, has {len(actual)} item(s)"
+                )
+
+        elif a.op in ("any_item_has", "all_items_have"):
+            if not isinstance(actual, list):
+                raise AssertionError(f"'{a.field}' is not a list: {actual!r}")
+            if not actual:
+                # An empty list would make all_items_have pass vacuously: a false positive.
+                raise AssertionError(f"'{a.field}' is empty: there is nothing to check")
+            values = [
+                item.get(a.item_field, _MISSING) if isinstance(item, dict) else _MISSING
+                for item in actual
+            ]
+            matches = [_same(value, a.value) for value in values]
+            if not (any(matches) if a.op == "any_item_has" else all(matches)):
+                seen = sorted({repr(v) for v in values if v is not _MISSING})
+                raise AssertionError(
+                    f"{a.op} failed: '{a.field}[].{a.item_field}' == {a.value!r}; "
+                    f"values seen: {seen[:10]}"
+                )
+
+        elif a.op == "younger_than_hours":
+            try:
+                timestamp = datetime.fromisoformat(str(actual))
+            except ValueError as exc:
+                raise AssertionError(
+                    f"'{a.field}' is not an ISO timestamp: {actual!r}"
+                ) from exc
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=UTC)
+            age_hours = (datetime.now(UTC) - timestamp).total_seconds() / 3600
+            if age_hours >= float(a.value):
+                raise AssertionError(
+                    f"'{a.field}' is {age_hours:.1f} h old, expected less than {a.value} h"
+                )
+
 
 def execute_plan(
     plan: TestPlan,
@@ -129,6 +264,7 @@ def execute_plan(
     results: list[ActionResult] = []
     evidence: list[str] = []
     console_errors: list[str] = []
+    api_calls: list[str] = []
 
     try:
         with sync_playwright() as p:
@@ -182,6 +318,7 @@ def execute_plan(
                 context.tracing.stop(path=trace)
                 evidence.append(str(trace))
                 console_errors = runner.console_errors
+                api_calls = runner.api_calls
                 browser.close()
     except PlaywrightError as exc:
         return ExecutionResult(
@@ -189,6 +326,7 @@ def execute_plan(
             passed=False,
             actions=results,
             error=f"infrastructure: {_clean(exc)}",
+            api_calls=api_calls,
             evidence=evidence,
         )
 
@@ -197,6 +335,7 @@ def execute_plan(
         passed=bool(results) and all(r.status == "passed" for r in results),
         actions=results,
         console_errors=console_errors,
+        api_calls=api_calls,
         evidence=evidence,
     )
 
@@ -221,6 +360,7 @@ def make_executor(
         evidence_dir.mkdir(parents=True, exist_ok=True)
         plan_file = evidence_dir / "plan.json"
         plan_file.write_text(plan.model_dump_json(indent=2))
+
         result = execute_plan(
             plan, base_url=base_url, evidence_dir=evidence_dir, timeout_ms=timeout_ms
         )
@@ -228,6 +368,7 @@ def make_executor(
         result_file = evidence_dir / "execution.json"
         result.evidence.append(str(result_file))
         result_file.write_text(result.model_dump_json(indent=2))
+
         counts = {
             s: sum(r.status == s for r in result.actions)
             for s in ("passed", "failed", "skipped")

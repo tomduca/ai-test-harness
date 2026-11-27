@@ -25,6 +25,7 @@ class ExecutionResult(BaseModel):
         None  # infrastructure failure (e.g. the browser could not start)
     )
     console_errors: list[str] = Field(default_factory=list)
+    api_calls: list[str] = Field(default_factory=list)  # "GET <url> -> <status>"
     evidence: list[str] = Field(default_factory=list)  # screenshot / trace paths
 
 

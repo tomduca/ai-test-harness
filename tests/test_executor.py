@@ -5,11 +5,14 @@ from ai_test_harness.nodes.executor import ActionRunner, execute_plan
 from ai_test_harness.schemas.plan import (
     Action,
     Click,
+    ExpectHidden,
     ExpectImagesLoaded,
     ExpectItems,
     ExpectNoConsoleErrors,
+    ExpectText,
     ExpectUrlPath,
     ExpectVisible,
+    Fill,
     Goto,
     Locator,
     Scope,
@@ -35,6 +38,11 @@ PAGES = {
     "/broken-js/": html("<script>console.error('boom')</script>"),
     "/broken-img/": html('<img src="/missing.png" alt="missing">'),
     "/lang/": html('<nav><a href="#aire">En el aire</a></nav><a href="/en/">EN</a>'),
+    "/form/": html(
+        '<label for="c">Tu indicativo</label>'
+        '<input id="c" oninput="document.getElementById(\'s\').textContent = this.value">'
+        '<p id="s" role="status"></p>'
+    ),
 }
 
 
@@ -168,3 +176,31 @@ def test_names_match_case_insensitively(tmp_path):
         ExpectUrlPath(path="/en/", step=2),
     )
     assert result.passed, result.actions
+
+
+def test_fill_types_into_a_labelled_field(tmp_path):
+    result = run(
+        tmp_path,
+        Goto(path="/form/", step=0),
+        Fill(locator=Locator(label="Tu indicativo"), value="LU3MRP", step=1),
+        ExpectText(locator=Locator(role="status"), text="LU3MRP", step=2),
+    )
+    assert result.passed, result.actions
+
+
+def test_expect_hidden_passes_when_the_element_does_not_exist(tmp_path):
+    result = run(
+        tmp_path,
+        Goto(path="/form/", step=0),
+        ExpectHidden(locator=Locator(role="table"), step=1),
+    )
+    assert result.passed, result.actions
+
+
+def test_expect_hidden_fails_when_the_element_is_visible(tmp_path):
+    result = run(
+        tmp_path,
+        Goto(path="/", step=0),
+        ExpectHidden(locator=Locator(role="heading", name="El taller"), step=1),
+    )
+    assert statuses(result) == ["passed", "failed"]

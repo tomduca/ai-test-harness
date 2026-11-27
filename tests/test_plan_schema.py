@@ -1,7 +1,18 @@
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
-from ai_test_harness.schemas.plan import ExpectItems, Goto, Locator, TestPlan
+from ai_test_harness.schemas.plan import (
+    Action,
+    ApiGet,
+    ExpectItems,
+    ExpectJson,
+    Goto,
+    Locator,
+    QueryParam,
+    TestPlan,
+)
 
 MENU_PLAN = {
     "scenario_id": "navigation::the-main-menu-offers-exactly-the-expected-items",
@@ -71,5 +82,24 @@ def test_llm_schema_requires_the_action_discriminator():
     # gpt-oss (json_schema mode) omitted it, so plans could not be parsed.
     defs = TestPlan.model_json_schema()["$defs"]
     action_models = [d for d in defs.values() if "action" in d.get("properties", {})]
-    assert len(action_models) == 8
+    assert len(action_models) == len(get_args(get_args(Action)[0]))
     assert all("action" in d["required"] for d in action_models)
+
+
+def test_expect_json_needs_a_value_when_the_op_compares():
+    with pytest.raises(ValidationError, match="needs a value"):
+        ExpectJson(field="found", op="equals", step=0)
+
+
+def test_item_ops_need_an_item_field():
+    with pytest.raises(ValidationError, match="needs item_field"):
+        ExpectJson(field="qsos", op="any_item_has", value="LU1MAW", step=0)
+
+
+def test_api_calls_cannot_leave_the_site():
+    with pytest.raises(ValidationError):
+        ApiGet(path="https://evil.example/api", step=0)
+    call = ApiGet(
+        path="/api/qso", params=[QueryParam(name="call", value=" LU3MRP ")], step=0
+    )
+    assert call.params[0].value == " LU3MRP "  # spaces are kept: the spec tests them
