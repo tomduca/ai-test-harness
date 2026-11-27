@@ -50,3 +50,34 @@ def test_reports_every_failure_when_all_models_fail(monkeypatch):
         get_llm().invoke("hi")
     assert "fake:a" in str(info.value)
     assert "fake:b" in str(info.value)
+
+
+def test_daily_quota_exhaustion_is_recognised(monkeypatch):
+    def out_of_daily_quota(_):
+        raise RuntimeError(
+            "429 Rate limit reached ... on tokens per day (TPD): Limit 200000"
+        )
+
+    monkeypatch.setattr(
+        llm_module, "_build", lambda spec: RunnableLambda(out_of_daily_quota)
+    )
+    monkeypatch.setenv("LLM_MODELS", "fake:a,fake:b")
+    with pytest.raises(LLMChainError) as info:
+        get_llm().invoke("hi")
+    assert info.value.daily_quota_exhausted
+    assert "[daily_quota] fake:a" in str(info.value)
+
+
+def test_a_transient_failure_is_not_daily_exhaustion(monkeypatch):
+    def fake_build(spec):
+        if spec == "fake:a":
+            return RunnableLambda(
+                lambda _: (_ for _ in ()).throw(RuntimeError("tokens per day"))
+            )
+        return RunnableLambda(unavailable)  # 503: may recover in a minute
+
+    monkeypatch.setattr(llm_module, "_build", fake_build)
+    monkeypatch.setenv("LLM_MODELS", "fake:a,fake:b")
+    with pytest.raises(LLMChainError) as info:
+        get_llm().invoke("hi")
+    assert not info.value.daily_quota_exhausted

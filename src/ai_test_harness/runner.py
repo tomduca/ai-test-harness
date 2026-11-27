@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from ai_test_harness.graph import build_graph
+from ai_test_harness.llm import LLMChainError
 from ai_test_harness.nodes.evaluator import evaluator
 from ai_test_harness.nodes.executor import make_executor
 from ai_test_harness.nodes.planner import make_planner
@@ -18,14 +19,19 @@ def _run_one(graph, scenario: Scenario) -> dict:
     try:
         return graph.invoke(initial_state(scenario))
     except Exception as exc:  # noqa: BLE001 - one broken scenario must not stop the run
+        quota = isinstance(exc, LLMChainError) and exc.daily_quota_exhausted
+        prefix = (
+            "daily LLM quota exhausted for every model" if quota else "harness error"
+        )
         return {
             "scenario": scenario,
             "attempts": 0,
             "log": [],
+            "quota_exhausted": quota,
             "verdict": Verdict(
                 scenario_id=scenario.id,
                 outcome="infra_error",
-                reason=f"harness error: {type(exc).__name__}: {exc}",
+                reason=f"{prefix}: {type(exc).__name__}: {exc}",
             ),
         }
 
@@ -33,16 +39,22 @@ def _run_one(graph, scenario: Scenario) -> dict:
 def run_scenarios(
     graph, scenarios: list[Scenario], infra_retry_delay_s: float
 ) -> list[dict]:
-    """Run every scenario; retry ONCE, after a delay, only those that ended in infra_error.
+    """Run every scenario; retry ONCE, after a delay, only transient infra errors.
 
     Product bugs and test defects are never retried: retrying a real bug until it
-    passes is how intermittent bugs get hidden.
+    passes is how intermittent bugs get hidden. Exhausted daily quotas are not
+    retried either: waiting a minute cannot fix them.
     """
     finals = [_run_one(graph, scenario) for scenario in scenarios]
 
     to_retry = [
-        i for i, final in enumerate(finals) if final["verdict"].outcome == "infra_error"
+        i
+        for i, final in enumerate(finals)
+        if final["verdict"].outcome == "infra_error"
+        and not final.get("quota_exhausted")
     ]
+    if exhausted := sum(1 for f in finals if f.get("quota_exhausted")):
+        print(f"{exhausted} scenario(s) hit exhausted daily LLM quotas: not retried")
     if to_retry:
         print(
             f"Retrying {len(to_retry)} scenario(s) after infra errors in {infra_retry_delay_s:g}s"

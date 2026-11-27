@@ -22,6 +22,28 @@ class LLMConfigError(RuntimeError):
 class LLMChainError(RuntimeError):
     """Raised when every model in the chain failed. The message lists each model's error."""
 
+    def __init__(self, failures: list[tuple[str, str]]):
+        self.kinds = [kind for kind, _ in failures]
+        lines = "\n  ".join(f"[{kind}] {line}" for kind, line in failures)
+        super().__init__(f"all models failed:\n  {lines}")
+
+    @property
+    def daily_quota_exhausted(self) -> bool:
+        """True when waiting minutes will not help: every model is out of daily quota."""
+        return bool(self.kinds) and all(kind == "daily_quota" for kind in self.kinds)
+
+
+def _failure_kind(exc: Exception) -> str:
+    """Classify a provider error from its FULL message (the report only keeps 200 chars)."""
+    text = str(exc).lower()
+    if "per day" in text or "perday" in text:
+        return "daily_quota"
+    if "429" in text or "rate limit" in text:
+        return "rate_limit"
+    if "503" in text or "unavailable" in text or "timeout" in text:
+        return "unavailable"
+    return "error"
+
 
 def _model_specs() -> list[str]:
     raw = os.getenv("LLM_MODELS", "")
@@ -54,16 +76,17 @@ class ModelChain:
         self.last_model: str | None = None
 
     def invoke(self, messages):
-        errors = []
+        failures = []
         for spec, runnable in self.entries:
             try:
                 result = runnable.invoke(messages)
             except Exception as exc:  # noqa: BLE001 - any failure moves on to the next model
-                errors.append(f"{spec}: {type(exc).__name__}: {str(exc)[:200]}")
+                line = f"{spec}: {type(exc).__name__}: {str(exc)[:200]}"
+                failures.append((_failure_kind(exc), line))
                 continue
             self.last_model = spec
             return result
-        raise LLMChainError("all models failed:\n  " + "\n  ".join(errors))
+        raise LLMChainError(failures)
 
 
 @cache

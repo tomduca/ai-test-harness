@@ -52,3 +52,23 @@ def test_product_bugs_are_never_retried():
     finals = run_scenarios(graph, [scenario(0)], infra_retry_delay_s=0)
     assert finals[0]["verdict"].outcome == "product_bug"
     assert graph.calls == ["demo::s0"]
+
+
+from ai_test_harness.llm import LLMChainError
+
+
+class ExhaustedGraph:
+    def __init__(self):
+        self.calls = 0
+
+    def invoke(self, state):
+        self.calls += 1
+        raise LLMChainError([("daily_quota", "groq:x: 429 tokens per day")])
+
+
+def test_exhausted_daily_quotas_are_not_retried():
+    graph = ExhaustedGraph()
+    finals = run_scenarios(graph, [scenario(0)], infra_retry_delay_s=0)
+    assert graph.calls == 1
+    assert finals[0]["verdict"].outcome == "infra_error"
+    assert "daily LLM quota exhausted" in finals[0]["verdict"].reason
