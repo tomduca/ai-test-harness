@@ -23,8 +23,10 @@ from ai_test_harness.schemas.results import ActionResult, ExecutionResult
 from ai_test_harness.state import ScenarioState
 
 # If one of these fails, the state is unknown: the remaining actions are skipped.
-# Failed assertions (expect_*) are soft: they are recorded and execution continues.
-INTERACTIONS = {"goto", "click", "fill", "api_get"}
+# expect_status is a gate: with an unexpected status, the body is not the one the
+# following checks were written for (their failures would be cascades, not findings).
+# Other failed assertions (expect_*) are soft: they are recorded and execution continues.
+INTERACTIONS = {"goto", "click", "fill", "api_get", "expect_status"}
 
 MAX_ERROR_CHARS = 600
 ANSI_CODES = re.compile(r"\x1b\[[0-9;]*m")

@@ -213,3 +213,16 @@ def test_query_values_reach_the_server_unchanged(api_base, tmp_path, call):
 def test_assertions_need_a_previous_api_call(api_base, tmp_path):
     result = run(api_base, tmp_path, ExpectStatus(status=200, step=0))
     assert "api_get must come first" in result.actions[0].error
+
+
+def test_a_wrong_status_skips_the_body_checks(api_base, tmp_path):
+    # Regression (real site): 333aaazzz returned 200 instead of 400; the follow-up
+    # check for the 'error' field failed as a cascade and was misread as a test defect.
+    result = run(
+        api_base,
+        tmp_path,
+        lookup("LU1MAW"),
+        ExpectStatus(status=400, step=1),
+        ExpectJson(field="error", op="equals", value="invalid_callsign", step=1),
+    )
+    assert statuses(result) == ["passed", "failed", "skipped"]
