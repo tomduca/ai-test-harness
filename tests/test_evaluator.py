@@ -153,3 +153,11 @@ def test_wrong_api_value_is_a_product_bug():
         evaluate(execution(passed("api_get"), failed("expect_status", error))).outcome
         == "product_bug"
     )
+
+
+def test_an_unknown_contract_is_a_test_defect():
+    error = "response unknown contract 'qso_lookup'; available: ['QsoLookup']"
+    assert (
+        evaluate(execution(passed("api_get"), failed("expect_contract", error))).outcome
+        == "test_defect"
+    )

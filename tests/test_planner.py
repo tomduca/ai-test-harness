@@ -1,5 +1,6 @@
 import pytest
 
+from ai_test_harness.contracts import ContractSet
 from ai_test_harness.nodes.planner import (
     MAX_SELF_CORRECTIONS,
     PlannerError,
@@ -12,6 +13,7 @@ from ai_test_harness.plan_cache import PlanCache
 from ai_test_harness.schemas.plan import (
     ApiGet,
     Click,
+    ExpectContract,
     ExpectItems,
     ExpectJson,
     ExpectStatus,
@@ -191,17 +193,17 @@ def test_json_booleans_must_not_be_strings():
     assert any("JSON booleans" in p for p in problems)
 
 
-def test_only_api_scenarios_get_the_api_reference(tmp_path, monkeypatch):
-    (tmp_path / "qso.md").write_text("GET /api/qso?call={callsign}")
-    monkeypatch.setenv("CONTRACTS_DIR", str(tmp_path))
+def test_only_api_scenarios_get_the_api_reference(tmp_path):
+    (tmp_path / "openapi.yaml").write_text("openapi: 3.1.0\npaths:\n  /api/qso: {}\n")
+    target = Target(name="demo", base_url="https://example.test", root=tmp_path)
 
     api_llm = FakeLLM(GOOD_PLAN)
     api_scenario = SCENARIO.model_copy(update={"tags": ["@api"]})
-    make_planner(api_llm)(initial_state(api_scenario))
-    assert "GET /api/qso?call={callsign}" in api_llm.calls[0][-1].content
+    make_planner(api_llm, target=target)(initial_state(api_scenario))
+    assert "/api/qso" in api_llm.calls[0][-1].content
 
     ui_llm = FakeLLM(GOOD_PLAN)
-    make_planner(ui_llm)(initial_state(SCENARIO))
+    make_planner(ui_llm, target=target)(initial_state(SCENARIO))
     assert "API reference" not in ui_llm.calls[0][-1].content
 
 
@@ -251,3 +253,16 @@ def test_changing_a_hint_invalidates_cached_plans(tmp_path):
     target = Target(name="demo", base_url="https://example.test", root=tmp_path)
     edited = target.model_copy(update={"planner_hints": ["a new hint"]})
     assert planner_fingerprint(target) != planner_fingerprint(edited)
+
+
+def test_an_unknown_contract_is_a_problem():
+    contracts = ContractSet({"components": {"schemas": {"QsoLookup": {}}}}, "inline")
+    plan = TestPlan(
+        scenario_id="x",
+        actions=[
+            ApiGet(path="/api/qso", step=0),
+            ExpectContract(contract="qso_lookup", step=1),
+        ],
+    )
+    problems = find_plan_problems(plan, SCENARIO, contracts)
+    assert "unknown contracts at steps [1]; available: ['QsoLookup']" in problems

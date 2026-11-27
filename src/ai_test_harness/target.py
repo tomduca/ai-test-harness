@@ -37,6 +37,10 @@ class Target(BaseModel):
     def plans_dir(self) -> Path:
         return self.root / "plans"
 
+    @property
+    def openapi_path(self) -> Path:
+        return self.root / "openapi.yaml"
+
 
 def available_targets(targets_dir: Path = DEFAULT_TARGETS_DIR) -> list[str]:
     return sorted(config.parent.name for config in targets_dir.glob("*/target.toml"))

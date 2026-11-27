@@ -1,0 +1,129 @@
+openapi: 3.1.0
+info:
+  title: LU2MET QSO lookup API
+  version: 0.2.0
+  description: |
+    Public, read-only lookup of QSOs in the LU2MET log, synced nightly.
+
+    Changelog
+    - 0.2.0: added `call_logged` (portable normalization); `found` is false when a band
+      filter matches nothing; case and whitespace normalization made explicit.
+    - 0.1.0: initial contract.
+servers:
+  - url: https://www.lu2met.ar
+paths:
+  /api/qso:
+    get:
+      operationId: lookupQsos
+      summary: Look up the QSOs logged with a callsign
+      description: |
+        Base and portable forms find each other's QSOs: KE4TT finds QSOs logged as
+        V4/KE4TT, LU1MAW/M finds QSOs logged as LU1MAW, and vice versa.
+      parameters:
+        - name: call
+          in: query
+          required: true
+          description: Callsign. Case-insensitive; surrounding whitespace is ignored.
+          schema:
+            type: string
+        - name: band
+          in: query
+          required: false
+          description: Only QSOs on this band, e.g. 20m or 2m.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lookup result, also when nothing matches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QsoLookup"
+        "400":
+          description: The callsign is not valid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/health:
+    get:
+      operationId: health
+      summary: Service status and freshness of the log data
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+components:
+  schemas:
+    QsoLookup:
+      type: object
+      additionalProperties: false
+      required: [call, found, qsos]
+      properties:
+        call:
+          type: string
+          description: The normalized callsign that was looked up (uppercase, trimmed).
+        found:
+          type: boolean
+          description: False when no QSO matches the lookup, including the band filter.
+        qsos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Qso"
+      # A lookup that found nothing cannot list QSOs.
+      if:
+        properties:
+          found:
+            const: false
+      then:
+        properties:
+          qsos:
+            maxItems: 0
+    Qso:
+      type: object
+      additionalProperties: false
+      required: [date, band, mode, lotw_confirmed, call_logged]
+      properties:
+        date:
+          type: string
+          format: date
+          description: YYYY-MM-DD. No time is exposed (privacy).
+        band:
+          type: string
+          examples: ["10m", "2m"]
+        mode:
+          type: string
+          examples: ["SSB", "FT8", "FM"]
+        lotw_confirmed:
+          type: boolean
+          description: Owned by LoTW. Only its type is part of the contract.
+        call_logged:
+          type: string
+          description: How the QSO was logged; may differ from the looked-up call (portables).
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          examples: ["invalid_callsign"]
+        message:
+          type: string
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, last_sync, qso_count]
+      properties:
+        status:
+          type: string
+          examples: ["ok"]
+        last_sync:
+          type: string
+          format: date-time
+        qso_count:
+          type: integer
+          minimum: 0

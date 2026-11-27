@@ -19,7 +19,11 @@ NOT_FOUND_MARKERS = (
 )
 NETWORK_MARKERS = ("net::ERR_", "ENOTFOUND", "ECONNREFUSED", "ECONNRESET", "Timeout")
 # The plan asked for something that does not exist: the test is wrong, not the site.
-PLAN_MARKERS = ("api_get must come first", "not found in the response")
+PLAN_MARKERS = (
+    "api_get must come first",
+    "not found in the response",
+    "unknown contract",
+)
 MAX_REASON_ERROR_CHARS = 300
 
 

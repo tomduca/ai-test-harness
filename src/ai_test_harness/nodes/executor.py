@@ -15,9 +15,8 @@ from dotenv import load_dotenv
 from playwright.sync_api import ConsoleMessage, Page, expect, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator as PlaywrightLocator
-from pydantic import ValidationError
 
-from ai_test_harness.contracts import CONTRACTS
+from ai_test_harness.contracts import ContractError, ContractSet
 from ai_test_harness.schemas.plan import Locator, TestPlan
 from ai_test_harness.schemas.results import ActionResult, ExecutionResult
 from ai_test_harness.state import ScenarioState
@@ -110,10 +109,17 @@ def _same(actual: Any, expected: Any) -> bool:
 class ActionRunner:
     """One handler per action type: `_<action name>`. No interpretation, no LLM."""
 
-    def __init__(self, page: Page, base_url: str, timeout_ms: int):
+    def __init__(
+        self,
+        page: Page,
+        base_url: str,
+        timeout_ms: int,
+        contracts: ContractSet | None = None,
+    ):
         self.page = page
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout_ms
+        self.contracts = contracts
         self.console_errors: list[str] = []
         self.api_calls: list[str] = []
         self.last_response: ApiResponse | None = None
@@ -195,12 +201,12 @@ class ActionRunner:
             )
 
     def _expect_contract(self, a):
+        if self.contracts is None:
+            raise AssertionError("unknown contract: this target has no openapi.yaml")
         try:
-            CONTRACTS[a.contract].model_validate_json(self._response().text)
-        except ValidationError as exc:
-            raise AssertionError(
-                f"response does not match contract '{a.contract}': {exc}"
-            ) from exc
+            self.contracts.validate(a.contract, self._response().text)
+        except ContractError as exc:
+            raise AssertionError(f"response {exc}") from exc
 
     def _expect_json(self, a):
         actual = _get_path(self._response().json_body(), a.field)
@@ -261,6 +267,7 @@ def execute_plan(
     timeout_ms: int = 5000,
     headless: bool = True,
     route: Callable | None = None,
+    contracts: ContractSet | None = None,
 ) -> ExecutionResult:
     evidence_dir.mkdir(parents=True, exist_ok=True)
     results: list[ActionResult] = []
@@ -278,7 +285,7 @@ def execute_plan(
                 context.route("**/*", route)
             context.tracing.start(screenshots=True, snapshots=True)
             page = context.new_page()
-            runner = ActionRunner(page, base_url, timeout_ms)
+            runner = ActionRunner(page, base_url, timeout_ms, contracts)
 
             try:
                 blocked = False
@@ -347,6 +354,7 @@ def make_executor(
     reports_dir: str | Path | None = None,
     run_id: str | None = None,
     timeout_ms: int | None = None,
+    contracts: ContractSet | None = None,
 ) -> Callable[[ScenarioState], dict]:
     load_dotenv()
     base_url = base_url or os.getenv("BASE_URL", "https://www.lu2met.ar")
@@ -364,7 +372,11 @@ def make_executor(
         plan_file.write_text(plan.model_dump_json(indent=2))
 
         result = execute_plan(
-            plan, base_url=base_url, evidence_dir=evidence_dir, timeout_ms=timeout_ms
+            plan,
+            base_url=base_url,
+            evidence_dir=evidence_dir,
+            timeout_ms=timeout_ms,
+            contracts=contracts,
         )
         result.evidence.insert(0, str(plan_file))
         result_file = evidence_dir / "execution.json"

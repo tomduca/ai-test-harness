@@ -4,6 +4,7 @@ import os
 import time
 from pathlib import Path
 
+from ai_test_harness.contracts import ContractSet
 from ai_test_harness.graph import build_graph
 from ai_test_harness.llm import LLMChainError
 from ai_test_harness.nodes.evaluator import evaluator
@@ -82,12 +83,17 @@ def run_specs(target: Target, only: str | None = None) -> list[dict]:
         if cache_root
         else None
     )
+    contracts = (
+        ContractSet.load(target.openapi_path) if target.openapi_path.exists() else None
+    )
     executor = make_executor(
         base_url=os.getenv("BASE_URL")
         or target.base_url,  # BASE_URL: e.g. a staging site
         reports_dir=Path(os.getenv("REPORTS_DIR", "reports")) / target.name,
+        contracts=contracts,
     )
-    graph = build_graph(make_planner(cache=cache, target=target), executor, evaluator)
+    planner = make_planner(cache=cache, target=target, contracts=contracts)
+    graph = build_graph(planner, executor, evaluator)
     scenarios = [s for s in load_specs(target.specs_dir) if not only or only in s.id]
     # Default 60 s: Groq's tokens-per-minute window resets every minute.
     delay = float(os.getenv("INFRA_RETRY_DELAY_S", "60"))

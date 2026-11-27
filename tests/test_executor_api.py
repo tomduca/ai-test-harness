@@ -2,10 +2,12 @@ import json
 import threading
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from ai_test_harness.contracts import ContractSet
 from ai_test_harness.nodes.executor import execute_plan
 from ai_test_harness.schemas.plan import (
     ApiGet,
@@ -15,6 +17,8 @@ from ai_test_harness.schemas.plan import (
     QueryParam,
     TestPlan,
 )
+
+CONTRACTS = ContractSet.load(Path("targets/lu2met/openapi.yaml"))
 
 QSOS = {
     "LU1MAW": [
@@ -89,7 +93,13 @@ def lookup(call, band=None):
 
 def run(api_base, tmp_path, *actions):
     plan = TestPlan(scenario_id="fixture::api", actions=list(actions))
-    return execute_plan(plan, base_url=api_base, evidence_dir=tmp_path, timeout_ms=2000)
+    return execute_plan(
+        plan,
+        base_url=api_base,
+        evidence_dir=tmp_path,
+        timeout_ms=2000,
+        contracts=CONTRACTS,
+    )
 
 
 def statuses(result):
@@ -102,7 +112,7 @@ def test_a_found_station_meets_the_contract(api_base, tmp_path):
         tmp_path,
         lookup("LU1MAW"),
         ExpectStatus(status=200, step=1),
-        ExpectContract(contract="qso_lookup", step=1),
+        ExpectContract(contract="QsoLookup", step=1),
         ExpectJson(field="found", op="equals", value=True, step=1),
         ExpectJson(field="qsos", op="not_empty", step=1),
         ExpectJson(
@@ -128,7 +138,7 @@ def test_undocumented_fields_break_the_contract(api_base, tmp_path):
         api_base,
         tmp_path,
         lookup("EXTRA1"),
-        ExpectContract(contract="qso_lookup", step=1),
+        ExpectContract(contract="QsoLookup", step=1),
     )
     assert statuses(result) == ["passed", "failed"]
     assert "rst" in result.actions[1].error
@@ -139,7 +149,7 @@ def test_the_error_body_meets_its_contract(api_base, tmp_path):
         api_base,
         tmp_path,
         lookup("!!bad"),
-        ExpectContract(contract="api_error", step=1),
+        ExpectContract(contract="ApiError", step=1),
         ExpectJson(field="error", op="equals", value="invalid_callsign", step=1),
     )
     assert result.passed, result.actions
@@ -197,7 +207,7 @@ def test_health_freshness(api_base, tmp_path):
         api_base,
         tmp_path,
         ApiGet(path="/api/health", step=0),
-        ExpectContract(contract="health", step=1),
+        ExpectContract(contract="Health", step=1),
         ExpectJson(field="last_sync", op="younger_than_hours", value=48, step=1),
     )
     assert result.passed, result.actions

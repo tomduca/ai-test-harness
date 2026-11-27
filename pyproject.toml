@@ -8,6 +8,7 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "gherkin-official>=43.0.0",
+    "jsonschema[format-nongpl]>=4.26.0",
     "langchain>=1.5.2",
     "langchain-google-genai>=4.5.3",
     "langchain-groq>=1.2.1",
@@ -15,6 +16,7 @@ dependencies = [
     "playwright>=1.65.2",
     "pydantic>=2.14.4",
     "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.4",
 ]
 
 [project.scripts]

@@ -2,13 +2,12 @@
 
 import hashlib
 import json
-import os
 from collections.abc import Callable
-from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 
+from ai_test_harness.contracts import ContractSet
 from ai_test_harness.llm import get_llm
 from ai_test_harness.plan_cache import PlanCache
 from ai_test_harness.schemas.plan import TestPlan
@@ -90,25 +89,26 @@ def render_scenario(scenario: Scenario) -> str:
     return "\n".join(lines)
 
 
-def api_reference() -> str:
-    """The API contracts, written for humans, double as context for the LLM."""
-    contracts_dir = Path(os.getenv("CONTRACTS_DIR", "docs/contracts"))
-    return "\n\n".join(
-        path.read_text(encoding="utf-8") for path in sorted(contracts_dir.glob("*.md"))
-    )
+def api_reference(target: Target | None = None) -> str:
+    """The target's OpenAPI document: documentation for humans, context for the LLM."""
+    if target is None or not target.openapi_path.exists():
+        return ""
+    return target.openapi_path.read_text(encoding="utf-8")
 
 
 def planner_fingerprint(target: Target | None = None) -> str:
-    """Changes whenever the prompt (hints included), the vocabulary or the contracts change."""
+    """Changes whenever the prompt (hints included), the vocabulary or the contract change."""
     material = (
         system_prompt(target)
         + json.dumps(TestPlan.model_json_schema(), sort_keys=True)
-        + api_reference()
+        + api_reference(target)
     )
     return hashlib.sha256(material.encode()).hexdigest()
 
 
-def find_plan_problems(plan: TestPlan, scenario: Scenario) -> list[str]:
+def find_plan_problems(
+    plan: TestPlan, scenario: Scenario, contracts: ContractSet | None = None
+) -> list[str]:
     """Semantic checks the schema cannot express: the plan must fit THIS scenario."""
     problems = []
     step_count = len(scenario.steps)
@@ -161,14 +161,23 @@ def find_plan_problems(plan: TestPlan, scenario: Scenario) -> list[str]:
             "expect_json values must be JSON booleans (true/false), not strings, "
             f"at steps {stringly}"
         )
-
+    if contracts is not None and (
+        unknown_contracts := [
+            a.step
+            for a in plan.actions
+            if a.action == "expect_contract" and a.contract not in contracts.names
+        ]
+    ):
+        problems.append(
+            f"unknown contracts at steps {unknown_contracts}; available: {contracts.names}"
+        )
     return problems
 
 
 def build_messages(state: ScenarioState, target: Target | None = None) -> list:
     scenario = state["scenario"]
     content = render_scenario(scenario)
-    if "@api" in scenario.tags and (reference := api_reference()):
+    if "@api" in scenario.tags and (reference := api_reference(target)):
         content += f"\n\nAPI reference:\n{reference}"
     verdict = state.get("verdict")
     if verdict is not None and verdict.outcome == "test_defect" and state.get("plan"):
@@ -185,6 +194,7 @@ def make_planner(
     llm: Runnable | None = None,
     cache: PlanCache | None = None,
     target: Target | None = None,
+    contracts: ContractSet | None = None,
 ) -> Callable[[ScenarioState], dict]:
     def planner(state: ScenarioState) -> dict:
         scenario = state["scenario"]
@@ -193,7 +203,9 @@ def make_planner(
         # Retries (after a test_defect) always go to the LLM, with the feedback.
         if cache is not None and state["attempts"] == 0:
             cached = cache.get(scenario)
-            if cached is not None and not find_plan_problems(cached, scenario):
+            if cached is not None and not find_plan_problems(
+                cached, scenario, contracts
+            ):
                 return {
                     "plan": cached.model_copy(update={"scenario_id": scenario.id}),
                     "attempts": 1,
@@ -206,7 +218,7 @@ def make_planner(
 
         for corrections in range(MAX_SELF_CORRECTIONS + 1):
             plan = structured_llm.invoke(messages)
-            problems = find_plan_problems(plan, scenario)
+            problems = find_plan_problems(plan, scenario, contracts)
             if not problems:
                 break
             log.append(f"planner: invalid plan ({'; '.join(problems)})")

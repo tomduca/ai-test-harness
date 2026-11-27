@@ -4,8 +4,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ai_test_harness.contracts import ContractName
-
 # Subset of ARIA roles the planner may use. Kept small on purpose: fewer ways to be wrong.
 Role = Literal[
     "link",
@@ -170,8 +168,9 @@ class ExpectStatus(_Action):
 
 class ExpectContract(_Action):
     action: Literal["expect_contract"] = "expect_contract"
-    contract: ContractName = Field(
-        description="qso_lookup: 200 lookup body; api_error: 4xx body; health: /api/health body"
+    contract: str = Field(
+        description="Name of a schema under components/schemas in the API reference, "
+        "e.g. the schema of the expected response body"
     )
 
 
