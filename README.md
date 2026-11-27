@@ -28,9 +28,8 @@ flowchart LR
 | Stage | What it does | LLM? |
 |---|---|---|
 | **Spec loader** | Parses `.feature` files with the official Cucumber parser. Expands Scenario Outlines, prepends Backgrounds, assigns stable IDs (`feature::scenario[row]`). | No |
-| **Planner** | Asks the LLM for a `TestPlan` in a **closed action vocabulary** (`goto`, `click`, `expect_items`, …), validated by Pydantic. A second, semantic layer checks the plan fits the scenario (every step covered, every `Then` asserted, single-element locators named) and asks the LLM to self-correct, up to a bound. | Yes |
-| **Executor** | Dispatches each action to Playwright. Failed interactions stop the run; failed assertions are soft. Saves `plan.json`, `execution.json`, a Playwright trace and a screenshot per attempt. | No |
-| **Evaluator** | Classifies the result from Playwright's error signatures. Only `test_defect` loops back to the planner, with the concrete failure as feedback. | No |
+| **Planner** | Asks the LLM for a `TestPlan` in a **closed action vocabulary** (UI: `goto`, `click`, `fill`, `expect_items`…; API: `api_get`, `expect_status`, `expect_contract`, `expect_json`), validated by Pydantic. `@api` scenarios get the API contracts as context. A semantic layer checks the plan fits the scenario and asks the LLM to self-correct, up to a bound. Proven plans are reused from a cache. | Yes (cache misses only) |
+| **Executor** | Dispatches each action to Playwright (browser or `APIRequestContext`). Failed interactions and unexpected HTTP statuses stop the run; other assertions are soft. Saves `plan.json`, `execution.json`, a Playwright trace and a screenshot per attempt. | No || **Evaluator** | Classifies the result from Playwright's error signatures. Only `test_defect` loops back to the planner, with the concrete failure as feedback. | No |
 
 The LLM is fenced in by deterministic layers on both sides: schema and semantic validation before
 execution, rule-based evaluation after it.
@@ -60,6 +59,29 @@ section. In an earlier run, the language scenario showed the retry loop at work:
 the "EN" link to the navigation landmark, where it does not live (`test_defect`); attempt 2 fixed
 the locator and found the bug.
 
+## API testing
+
+The QSO lookup feature tests the site's public API and its UI from the same Gherkin file:
+
+```gherkin
+  @api
+  Scenario Outline: Base and portable forms of a callsign find each other's QSOs
+    When I look up the callsign "<callsign>" through the API
+    Then the response says the station was found
+    And the response contains a QSO logged as "<logged_as>"
+```
+
+- **Contracts as code and as context.** [`docs/contracts/`](docs/contracts/) is the human-readable
+  contract; `contracts.py` is its strict, executable version (`extra="forbid"`, strict types).
+  The same document is given to the planner for `@api` scenarios, so specs never mention
+  endpoints or field names.
+- **Shape vs content.** `expect_contract` validates the whole response; `expect_json` checks
+  scenario-specific content with a closed set of operations (`equals`, `any_item_has`,
+  `all_items_have`, `younger_than_hours`…).
+- **No assertions on third-party data.** LoTW confirmation status is owned by LoTW: the contract
+  checks its type, never its value.
+- **Tested against a real local HTTP server**, including URL encoding of `/` and whitespace.
+
 ## Design decisions
 
 Highlights (full log with rationale in [`docs/design-notes.md`](docs/design-notes.md)):
@@ -76,6 +98,12 @@ Highlights (full log with rationale in [`docs/design-notes.md`](docs/design-note
 - **Everything bounded.** Timeouts per action and per LLM call, self-corrections and graph retries.
 - **Evidence first.** Every attempt keeps its plan, its result and a Playwright trace; most
   harness bugs in this project were found by diffing that evidence.
+- **Cascades are prevented, not interpreted.** An unexpected HTTP status skips the body checks
+  that follow, so the evaluator sees the one real failure.
+- **Quota-aware.** Provider failures are classified (daily quota, rate limit, unavailable);
+  transient ones are retried once, exhausted daily quotas never.
+- **Proven-plan cache.** Passing plans are reused while the scenario, prompt, vocabulary and
+  contracts are unchanged: daily runs cost almost no tokens and are deterministic.
 
 ## Project structure
 
@@ -163,8 +191,11 @@ gh run download <run-id> -D ci-reports     # evidence, then: uv run playwright s
 
 - [x] MVP: planner → executor → deterministic evaluator, with retry loop and evidence
 - [x] GitHub Actions CI: lint gate, harness tests, scheduled runs with reports as artifacts
-- [ ] API testing: QSO lookup endpoint (`/api/qso`) with new `api_*` actions
-- [ ] LLM-as-judge for ambiguous failures (trace + page snapshot as evidence)
+- [x] API testing: QSO lookup endpoint with contract validation and JSON assertions
+- [ ] Multi-target: core vs per-site target (specs, contracts as schemas, approved plans)
+- [ ] Contract owned by the site repo; site deploys trigger the e2e run
+- [ ] Agent-assisted onboarding of a new target (proposes specs; a human approves)
+- [ ] LLM-as-judge for ambiguous failures and cascades (trace + page snapshot as evidence)
 - [ ] Planner with ARIA snapshot, measured against the blind planner
 - [ ] Executor via the Playwright MCP server
 - [ ] Parallel scenarios with LangGraph `Send` and an HTML report
