@@ -3,6 +3,7 @@
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 # Subset of ARIA roles the planner may use. Kept small on purpose: fewer ways to be wrong.
 Role = Literal[
     "link",
@@ -82,6 +83,7 @@ class _Action(BaseModel):
     step: int = Field(
         ge=0, description="0-based index of the Gherkin step this action implements"
     )
+
 
 class Goto(_Action):
     action: Literal["goto"] = "goto"
