@@ -51,7 +51,10 @@ class Locator(BaseModel):
     text: str | None = Field(None, description="Visible text of the element")
     label: str | None = Field(None, description="Label of a form control")
     css: str | None = Field(None, description="CSS selector. Last resort only")
-    exact: bool = Field(False, description="Exact, case-sensitive match of name/text")
+    exact: bool = Field(
+        False,
+        description="Case-sensitive match. Matching always uses the whole name/text",
+    )
     within: Scope | None = Field(
         None, description="Optional container to search inside"
     )

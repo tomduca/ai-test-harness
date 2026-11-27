@@ -19,7 +19,7 @@ def run_specs(specs_dir: Path = Path("specs"), only: str | None = None) -> list[
             continue
         try:
             finals.append(graph.invoke(initial_state(scenario)))
-        except Exception as exc:  # one broken scenario must not stop the whole run
+        except Exception as exc:  # noqa: BLE001 - one broken scenario must not stop the whole run
             finals.append(
                 {
                     "scenario": scenario,
