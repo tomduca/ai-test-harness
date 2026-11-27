@@ -34,6 +34,11 @@ Running log of design decisions, known limitations and findings. The README summ
   in `infra_error` because Groq hit its tokens-per-minute limit while Gemini returned 503. Retried
   scenarios are flagged in the output and the job summary. Product bugs are never retried, so
   intermittent bugs stay visible.
+- **API contracts double as LLM context.** `@api` scenarios get docs/contracts/*.md in the
+  planner prompt, so specs stay free of endpoints and field names. All 17 API scenarios passed
+  on the first attempt with a blind planner.
+- **expect_status is a gate.** An unexpected status skips the body checks that follow: their
+  failures would be cascades of the real finding.
 
 ## Known limitations
 
@@ -57,6 +62,8 @@ Running log of design decisions, known limitations and findings. The README summ
   the update itself. Confirmed from the CI log, then regenerated with `@dependabot recreate`.
   Release notes for checkout v7 reviewed: the breaking change (fork PRs in `pull_request_target`)
   does not affect this repo, which uses `pull_request`.
+  - The API accepts `333AAAZZZ` as a callsign (200, not found) while the UI rejects it: the API
+  validation is looser than the UI's.
 
 ## Bugs found in the harness itself
 
@@ -66,3 +73,7 @@ Running log of design decisions, known limitations and findings. The README summ
   positive). Fixed: whole-text, case-insensitive matching; regression tests on the fake site.
   - `action` had a default, so it was optional in the JSON schema; gpt-oss in `json_schema` mode
   omitted it and plans could not be parsed. Fixed: required in the LLM-facing schema only.
+  - Cascading misclassification (second occurrence): 333aaazzz returned 200; the check for the
+  `error` field then failed, was classified as test_defect and won over the real product bug.
+  Fixed by making expect_status a gate. Deterministic rules judge failures one by one and miss
+  cause-effect chains: a core motivation for the LLM-as-judge stage.
