@@ -6,9 +6,9 @@ from functools import cache
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
+from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
-from langchain_core.rate_limiters import InMemoryRateLimiter
 
 # Structured-output method per provider (missing = LangChain's default for that provider).
 # Groq + gpt-oss: tool calling is fragile (it may "call" its internal 'commentary' channel).
@@ -39,9 +39,12 @@ def _build(spec: str) -> BaseChatModel:
     if rpm := os.getenv("LLM_REQUESTS_PER_MINUTE"):
         # Client-side pacing: stay under the provider's free-tier limits instead of hitting 429s.
         kwargs["rate_limiter"] = InMemoryRateLimiter(
-            requests_per_second=float(rpm) / 60, check_every_n_seconds=0.1, max_bucket_size=1
+            requests_per_second=float(rpm) / 60,
+            check_every_n_seconds=0.1,
+            max_bucket_size=1,
         )
     return init_chat_model(spec, **kwargs)
+
 
 class ModelChain:
     """Try each model in order. Remember which one answered; report every failure."""
