@@ -43,6 +43,12 @@ jobs:
       - name: Install Chromium
         run: uv run playwright install --with-deps chromium
 
+      - name: Restore proven plans (saves LLM quota)
+        uses: actions/cache/restore@v6
+        with:
+          path: .plan-cache
+          key: plans-${{ github.run_id }}
+          restore-keys: plans-
       - name: Run the harness against the live site
         env:
           ONLY: ${{ inputs.only }}
@@ -56,3 +62,10 @@ jobs:
           path: reports/
           retention-days: 14
           if-no-files-found: warn
+
+      - name: Save proven plans (also when the run found bugs)
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .plan-cache
+          key: plans-${{ github.run_id }}

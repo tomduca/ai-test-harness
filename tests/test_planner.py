@@ -7,6 +7,7 @@ from ai_test_harness.nodes.planner import (
     make_planner,
     render_scenario,
 )
+from ai_test_harness.plan_cache import PlanCache
 from ai_test_harness.schemas.plan import (
     ApiGet,
     Click,
@@ -200,3 +201,30 @@ def test_only_api_scenarios_get_the_api_reference(tmp_path, monkeypatch):
     ui_llm = FakeLLM(GOOD_PLAN)
     make_planner(ui_llm)(initial_state(SCENARIO))
     assert "API reference" not in ui_llm.calls[0][-1].content
+
+
+def test_a_cached_plan_skips_the_llm(tmp_path):
+    cache = PlanCache(tmp_path, fingerprint="v1")
+    cache.put(SCENARIO, GOOD_PLAN)
+    llm = FakeLLM(GOOD_PLAN)
+    result = make_planner(llm, cache=cache)(initial_state(SCENARIO))
+    assert llm.calls == []
+    assert result["plan"].scenario_id == "navigation::menu"
+    assert "cached plan" in result["log"][0]
+
+
+def test_an_invalid_cached_plan_falls_back_to_the_llm(tmp_path):
+    cache = PlanCache(tmp_path, fingerprint="v1")
+    cache.put(SCENARIO, PARTIAL_PLAN)  # violates today's rules
+    llm = FakeLLM(GOOD_PLAN)
+    make_planner(llm, cache=cache)(initial_state(SCENARIO))
+    assert len(llm.calls) == 1
+
+
+def test_retries_never_use_the_cache(tmp_path):
+    cache = PlanCache(tmp_path, fingerprint="v1")
+    cache.put(SCENARIO, GOOD_PLAN)
+    llm = FakeLLM(GOOD_PLAN)
+    state = {**initial_state(SCENARIO), "attempts": 1}
+    make_planner(llm, cache=cache)(state)
+    assert len(llm.calls) == 1

@@ -8,7 +8,8 @@ from ai_test_harness.graph import build_graph
 from ai_test_harness.llm import LLMChainError
 from ai_test_harness.nodes.evaluator import evaluator
 from ai_test_harness.nodes.executor import make_executor
-from ai_test_harness.nodes.planner import make_planner
+from ai_test_harness.nodes.planner import make_planner, planner_fingerprint
+from ai_test_harness.plan_cache import PlanCache
 from ai_test_harness.schemas.results import Verdict
 from ai_test_harness.schemas.scenario import Scenario
 from ai_test_harness.specs_loader import load_specs
@@ -37,10 +38,12 @@ def _run_one(graph, scenario: Scenario) -> dict:
 
 
 def run_scenarios(
-    graph, scenarios: list[Scenario], infra_retry_delay_s: float
+    graph,
+    scenarios: list[Scenario],
+    infra_retry_delay_s: float,
+    cache: PlanCache | None = None,
 ) -> list[dict]:
     """Run every scenario; retry ONCE, after a delay, only transient infra errors.
-
     Product bugs and test defects are never retried: retrying a real bug until it
     passes is how intermittent bugs get hidden. Exhausted daily quotas are not
     retried either: waiting a minute cannot fix them.
@@ -62,15 +65,25 @@ def run_scenarios(
         time.sleep(infra_retry_delay_s)
         for i in to_retry:
             finals[i] = {**_run_one(graph, scenarios[i]), "infra_retried": True}
+    if cache is not None:
+        # Only passing plans are proven: a product_bug plan could be a misclassified
+        # test defect, and caching it would repeat that mistake every day.
+        for scenario, final in zip(scenarios, finals, strict=True):
+            if final["verdict"].outcome == "pass" and final.get("plan") is not None:
+                cache.put(scenario, final["plan"])
     return finals
 
 
 def run_specs(specs_dir: Path = Path("specs"), only: str | None = None) -> list[dict]:
-    graph = build_graph(make_planner(), make_executor(), evaluator)
+    cache_dir = os.getenv(
+        "PLAN_CACHE_DIR", ".plan-cache"
+    )  # empty string disables the cache
+    cache = PlanCache(Path(cache_dir), planner_fingerprint()) if cache_dir else None
+    graph = build_graph(make_planner(cache=cache), make_executor(), evaluator)
     scenarios = [s for s in load_specs(specs_dir) if not only or only in s.id]
     # Default 60 s: Groq's tokens-per-minute window resets every minute.
     delay = float(os.getenv("INFRA_RETRY_DELAY_S", "60"))
-    return run_scenarios(graph, scenarios, infra_retry_delay_s=delay)
+    return run_scenarios(graph, scenarios, infra_retry_delay_s=delay, cache=cache)
 
 
 OUTCOME_ICONS = {

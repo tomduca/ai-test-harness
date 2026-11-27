@@ -27,3 +27,4 @@ screenshots/
 .idea/
 ci-reports/
 ci-reports/
+.plan-cache/

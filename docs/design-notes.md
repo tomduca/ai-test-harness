@@ -39,6 +39,12 @@ Running log of design decisions, known limitations and findings. The README summ
   on the first attempt with a blind planner.
 - **expect_status is a gate.** An unexpected status skips the body checks that follow: their
   failures would be cascades of the real finding.
+  - **Proven-plan cache.** A plan that passed is reused while the scenario, the prompt, the
+  vocabulary and the contracts are unchanged (hash key); retries always replan. Only `pass`
+  plans are cached: a product_bug plan may be a misclassified test defect, and caching it would
+  repeat the mistake daily. Motivated by a CI run where 17 of 28 scenarios hit the Groq
+  tokens-per-day limit. In CI the cache is restored/saved separately (`if: always()`), because
+  the e2e job fails by design when it finds bugs. Next step (stage D): approved plans in the repo.
 
 ## Known limitations
 

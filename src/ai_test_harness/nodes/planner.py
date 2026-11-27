@@ -1,5 +1,7 @@
 """Planner node: turns a Gherkin scenario into a validated TestPlan using an LLM."""
 
+import hashlib
+import json
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -8,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 
 from ai_test_harness.llm import get_llm
+from ai_test_harness.plan_cache import PlanCache
 from ai_test_harness.schemas.plan import TestPlan
 from ai_test_harness.schemas.scenario import Scenario
 from ai_test_harness.state import ScenarioState
@@ -85,6 +88,16 @@ def api_reference() -> str:
     )
 
 
+def planner_fingerprint() -> str:
+    """Changes whenever the prompt, the action vocabulary or the API contracts change."""
+    material = (
+        SYSTEM_PROMPT
+        + json.dumps(TestPlan.model_json_schema(), sort_keys=True)
+        + api_reference()
+    )
+    return hashlib.sha256(material.encode()).hexdigest()
+
+
 def find_plan_problems(plan: TestPlan, scenario: Scenario) -> list[str]:
     """Semantic checks the schema cannot express: the plan must fit THIS scenario."""
     problems = []
@@ -157,10 +170,24 @@ def build_messages(state: ScenarioState) -> list:
     return [SystemMessage(SYSTEM_PROMPT), HumanMessage(content)]
 
 
-def make_planner(llm: Runnable | None = None) -> Callable[[ScenarioState], dict]:
+def make_planner(
+    llm: Runnable | None = None, cache: PlanCache | None = None
+) -> Callable[[ScenarioState], dict]:
     def planner(state: ScenarioState) -> dict:
-        structured_llm = llm or get_llm(TestPlan)
         scenario = state["scenario"]
+
+        # First attempt: reuse a proven plan if the scenario and the planner are unchanged.
+        # Retries (after a test_defect) always go to the LLM, with the feedback.
+        if cache is not None and state["attempts"] == 0:
+            cached = cache.get(scenario)
+            if cached is not None and not find_plan_problems(cached, scenario):
+                return {
+                    "plan": cached.model_copy(update={"scenario_id": scenario.id}),
+                    "attempts": 1,
+                    "log": ["planner: attempt 1, cached plan (no LLM call)"],
+                }
+
+        structured_llm = llm or get_llm(TestPlan)
         messages = build_messages(state)
         log = []
 
