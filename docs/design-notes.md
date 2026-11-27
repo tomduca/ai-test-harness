@@ -31,6 +31,8 @@ Running log of design decisions, known limitations and findings. The README summ
 - Lazy-loaded images are not checked unless they were loaded.
 - The model that produced each plan is not recorded yet.
 - LLM plans are not deterministic: the same scenario can get different locators on different runs. Each attempt's plan.json is kept as evidence.
+- Free-tier rate limits: runs are paced client-side (`LLM_REQUESTS_PER_MINUTE`). Results can vary
+  between runs when providers are saturated; such failures are reported as `infra_error`.
 
 ## Findings on the system under test
 
@@ -46,3 +48,5 @@ Running log of design decisions, known limitations and findings. The README summ
 - Locators used Playwright's substring matching (`exact=False`): "EN" clicked "En el aire" on the
   real site, and the wrong URL two steps later was reported as a product bug (cascading false
   positive). Fixed: whole-text, case-insensitive matching; regression tests on the fake site.
+  - `action` had a default, so it was optional in the JSON schema; gpt-oss in `json_schema` mode
+  omitted it and plans could not be parsed. Fixed: required in the LLM-facing schema only.

@@ -12,8 +12,8 @@ def main() -> None:
             f"{verdict.outcome:12} {verdict.scenario_id}  (attempts: {final['attempts']})"
         )
         if verdict.outcome != "pass":
-            print(f"             {verdict.reason[:240]}")
-
+            reason = verdict.reason[:1000].replace("\n", "\n             ")
+            print(f"             {reason}")
     outcomes = [f["verdict"].outcome for f in finals]
     print(
         f"\n{len(finals)} scenarios: "
