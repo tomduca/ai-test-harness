@@ -1,0 +1,47 @@
+# Design notes
+
+Running log of design decisions, known limitations and findings. The README summarizes it.
+
+## Decisions
+
+- **Python + uv, src layout, Python 3.14.** Local dev on macOS (Intel); CI on Linux.
+- **Provider-agnostic LLM chain.** `LLM_MODELS` is an ordered `provider:model` list with
+  fallbacks across providers, bounded timeouts and retries. Groq is primary: the Gemini free
+  tier allowed only 20 requests/day for gemini-3.8-flash and returned frequent 503s.
+- **Gherkin parsed with the official Cucumber parser** into pickles; stable scenario IDs
+  (`feature::scenario[row]`) for traceability across runs; duplicate scenario names rejected.
+- **One graph run per scenario.** `TypedDict` state with Pydantic payloads; bounded retry loop
+  (`MAX_ATTEMPTS`) from evaluator back to planner on `test_defect` only.
+- **Closed action vocabulary** (Pydantic discriminated union) instead of LLM-generated code.
+  Site-relative paths only. The vocabulary grows only when a spec needs it.
+- **Blind planner** (no DOM) for the MVP, so the impact of an ARIA snapshot can be measured later.
+- **Two validation layers in the planner:** schema (Pydantic) + semantic checks (step coverage,
+  outcome steps asserted) with bounded self-correction.
+- **Executor:** deterministic dispatcher; stops on failed interactions, soft assertions otherwise;
+  Playwright trace + final screenshot per attempt; 5 s action timeout. Tested against an in-memory
+  fake site via `context.route()`.
+- **Evaluator:** deterministic rules on Playwright error signatures. Priority
+  infra_error > test_defect > product_bug; unknown failures become "unclassified" product bugs.
+
+## Known limitations
+
+- A removed element and a wrong locator look the same ("no elements"): classified as
+  `test_defect`. Motivates the LLM-as-judge stage.
+- Console-error checks include third-party embeds (YouTube, Clublog): needs a domain filter.
+- Lazy-loaded images are not checked unless they were loaded.
+- The model that produced each plan is not recorded yet.
+
+## Findings on the system under test
+
+- "Mapa" menu item is redundant: `#mapa` points to an `<h3>` inside "En el aire". Detected
+  by the harness on its first real run.
+- `/api/qso` returns an undocumented `call_logged` field (contract v0.1).
+- The home page takes ~5 s to reach the `load` event (third-party embeds).
+- First full run: 8 scenarios, 6 pass, 2 product_bug (one was a harness false positive, see above).
+
+## Bugs found in the harness itself
+
+- The site-path regex accepted `"/\n"`; found from real LLM output, fixed with a regression test.
+- Locators used Playwright's substring matching (`exact=False`): "EN" clicked "En el aire" on the
+  real site, and the wrong URL two steps later was reported as a product bug (cascading false
+  positive). Fixed: whole-text, case-insensitive matching; regression tests on the fake site.

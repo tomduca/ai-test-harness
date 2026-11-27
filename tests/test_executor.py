@@ -34,6 +34,7 @@ PAGES = {
     "/en/": html('<nav><a href="/">Projects</a></nav>'),
     "/broken-js/": html("<script>console.error('boom')</script>"),
     "/broken-img/": html('<img src="/missing.png" alt="missing">'),
+    "/lang/": html('<nav><a href="#aire">En el aire</a></nav><a href="/en/">EN</a>'),
 }
 
 
@@ -144,3 +145,26 @@ def test_unreachable_site_is_recorded_as_a_failed_navigation(tmp_path):
     )
     assert statuses(result) == ["failed", "skipped"]
     assert "net::ERR" in result.actions[0].error
+
+
+def test_short_names_never_match_longer_labels(tmp_path):
+    # Regression (real site): substring matching made "EN" click "En el aire".
+    result = run(
+        tmp_path,
+        Goto(path="/lang/", step=0),
+        Click(
+            locator=Locator(role="link", name="EN", within=Scope(role="navigation")),
+            step=1,
+        ),
+    )
+    assert statuses(result) == ["passed", "failed"]  # "EN" is not inside <nav>
+
+
+def test_names_match_case_insensitively(tmp_path):
+    result = run(
+        tmp_path,
+        Goto(path="/lang/", step=0),
+        Click(locator=Locator(role="link", name="en"), step=1),
+        ExpectUrlPath(path="/en/", step=2),
+    )
+    assert result.passed, result.actions

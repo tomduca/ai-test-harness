@@ -32,17 +32,29 @@ BROKEN_IMAGES_JS = """
 """
 
 
+def _match(value: str, exact: bool) -> str | re.Pattern:
+    """exact=True: exact, case-sensitive. Otherwise: the WHOLE text, case-insensitive.
+
+    Never substring: with substring matching, "EN" matched "En el aire" on the real site.
+    """
+    if exact:
+        return value
+    return re.compile(rf"^\s*{re.escape(value)}\s*$", re.IGNORECASE)
+
+
 def resolve(page: Page, loc: Locator) -> PlaywrightLocator:
     """Translate our Locator schema into a Playwright locator."""
-    root = (
-        page.get_by_role(loc.within.role, name=loc.within.name) if loc.within else page
-    )
+    root = page
+    if loc.within:
+        scope_name = _match(loc.within.name, exact=False) if loc.within.name else None
+        root = page.get_by_role(loc.within.role, name=scope_name)
     if loc.role:
-        return root.get_by_role(loc.role, name=loc.name, exact=loc.exact)
+        name = _match(loc.name, loc.exact) if loc.name else None
+        return root.get_by_role(loc.role, name=name, exact=loc.exact or None)
     if loc.text:
-        return root.get_by_text(loc.text, exact=loc.exact)
+        return root.get_by_text(_match(loc.text, loc.exact), exact=loc.exact or None)
     if loc.label:
-        return root.get_by_label(loc.label, exact=loc.exact)
+        return root.get_by_label(_match(loc.label, loc.exact), exact=loc.exact or None)
     return root.locator(loc.css)
 
 
@@ -216,8 +228,10 @@ def make_executor(
         return {
             "execution": result,
             "log": [
-                f"executor: {counts['passed']} passed, {counts['failed']} failed, "
-                f"{counts['skipped']} skipped -> {evidence_dir}"
+                (
+                    f"executor: {counts['passed']} passed, {counts['failed']} failed, "
+                    f"{counts['skipped']} skipped -> {evidence_dir}"
+                )
             ],
         }
 

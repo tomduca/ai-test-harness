@@ -1,3 +1,6 @@
+# Reuses the fake site from the executor tests (same folder, so pytest can import it).
+from test_executor import MENU, run
+
 from ai_test_harness.nodes.evaluator import evaluate
 from ai_test_harness.schemas.plan import (
     Click,
@@ -7,9 +10,6 @@ from ai_test_harness.schemas.plan import (
     Locator,
 )
 from ai_test_harness.schemas.results import ActionResult, ExecutionResult
-
-# Reuses the fake site from the executor tests (same folder, so pytest can import it).
-from test_executor import MENU, run
 
 REAL_MAPA_ERROR = (
     "Locator expected to have text '['Proyectos', 'En el aire', 'QSOs', 'Taller', 'Directorio']'\n"
