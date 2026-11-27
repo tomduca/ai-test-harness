@@ -22,6 +22,10 @@ Running log of design decisions, known limitations and findings. The README summ
   fake site via `context.route()`.
 - **Evaluator:** deterministic rules on Playwright error signatures. Priority
   infra_error > test_defect > product_bug; unknown failures become "unclassified" product bugs.
+  - **Fallback models must be qualified for the schema, not just available.** With full error
+  reporting, qwen3.8-27b turned out to invent its own locator schema and gemini-3.5-flash-lite
+  produced invalid plans; both were removed from the chain. Rate limiting is per request, but
+  the binding Groq limit is tokens per minute (each call carries the full JSON schema).
 
 ## Known limitations
 
