@@ -2,8 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
-
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Subset of ARIA roles the planner may use. Kept small on purpose: fewer ways to be wrong.
 Role = Literal[
     "link",
@@ -69,11 +68,20 @@ class Locator(BaseModel):
         return self
 
 
+def _require_action(schema: dict) -> None:
+    """Python code may omit `action` (it has a default), but the LLM must always send it:
+    without the discriminator, the union cannot be resolved."""
+    required = schema.setdefault("required", [])
+    if "action" in schema.get("properties", {}) and "action" not in required:
+        required.insert(0, "action")
+
+
 class _Action(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_require_action)
+
     step: int = Field(
         ge=0, description="0-based index of the Gherkin step this action implements"
     )
-
 
 class Goto(_Action):
     action: Literal["goto"] = "goto"

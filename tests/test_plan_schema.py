@@ -64,3 +64,11 @@ def test_invented_roles_are_rejected():
 def test_step_index_cannot_be_negative():
     with pytest.raises(ValidationError):
         Goto(path="/", step=-1)
+
+def test_llm_schema_requires_the_action_discriminator():
+    # Regression: with a default, `action` was optional in the JSON schema and
+    # gpt-oss (json_schema mode) omitted it, so plans could not be parsed.
+    defs = TestPlan.model_json_schema()["$defs"]
+    action_models = [d for d in defs.values() if "action" in d.get("properties", {})]
+    assert len(action_models) == 8
+    assert all("action" in d["required"] for d in action_models)
