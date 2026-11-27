@@ -26,6 +26,10 @@ Running log of design decisions, known limitations and findings. The README summ
   reporting, qwen3.8-27b turned out to invent its own locator schema and gemini-3.5-flash-lite
   produced invalid plans; both were removed from the chain. Rate limiting is per request, but
   the binding Groq limit is tokens per minute (each call carries the full JSON schema).
+  - **Two quality gates.** pre-commit runs the project's own ruff (from `uv.lock`) on staged files;
+  the `checks` workflow runs lint + all harness tests on Linux for every push and PR. CI caught a
+  file committed before the hook existed. Dependabot keeps actions and dependencies updated, and
+  every update PR goes through `checks`.
 
 ## Known limitations
 

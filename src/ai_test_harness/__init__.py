@@ -1,7 +1,7 @@
 def main() -> None:
     import sys
 
-    from ai_test_harness.runner import run_specs
+    from ai_test_harness.runner import run_specs, write_github_summary
 
     only = sys.argv[1] if len(sys.argv) > 1 else None
     finals = run_specs(only=only)
@@ -23,4 +23,5 @@ def main() -> None:
         )
     )
     # Non-zero exit code when anything did not pass: CI will rely on this.
+    write_github_summary(finals)
     sys.exit(0 if all(o == "pass" for o in outcomes) else 1)
