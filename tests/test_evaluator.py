@@ -122,3 +122,34 @@ def test_real_extra_menu_item_is_a_product_bug(tmp_path):
 def test_real_unreachable_site_is_an_infra_error(tmp_path):
     result = run(tmp_path, Goto(path="/", step=0), route=None)
     assert evaluate(result).outcome == "infra_error"
+
+
+def test_api_network_failure_is_an_infra_error():
+    error = "apiRequestContext.get: getaddrinfo ENOTFOUND www.lu2met.ar"
+    assert (
+        evaluate(execution(failed("api_get", error, step=0))).outcome == "infra_error"
+    )
+
+
+def test_api_assertion_without_a_call_is_a_test_defect():
+    error = "no API response to check: api_get must come first"
+    assert (
+        evaluate(execution(failed("expect_status", error, step=0))).outcome
+        == "test_defect"
+    )
+
+
+def test_invented_json_field_is_a_test_defect():
+    error = "field 'station' not found in the response"
+    assert (
+        evaluate(execution(passed("api_get"), failed("expect_json", error))).outcome
+        == "test_defect"
+    )
+
+
+def test_wrong_api_value_is_a_product_bug():
+    error = 'expected HTTP 400, got 200: {"call":"333AAAZZZ","found":false,"qsos":[]}'
+    assert (
+        evaluate(execution(passed("api_get"), failed("expect_status", error))).outcome
+        == "product_bug"
+    )

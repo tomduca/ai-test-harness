@@ -1,6 +1,8 @@
 """Planner node: turns a Gherkin scenario into a validated TestPlan using an LLM."""
 
+import os
 from collections.abc import Callable
+from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
@@ -11,23 +13,54 @@ from ai_test_harness.schemas.scenario import Scenario
 from ai_test_harness.state import ScenarioState
 
 MAX_SELF_CORRECTIONS = 2
-# Actions that target ONE element: a role without a name matches every element of that role.
-SINGLE_TARGET_ACTIONS = {"click", "expect_visible", "expect_text"}
+
+# Actions that target ONE element.
+SINGLE_TARGET_ACTIONS = {"click", "fill", "expect_visible", "expect_text"}
+# Roles that usually appear many times on a page: without a name they are ambiguous.
+# Landmarks and regions such as status, main or a single table are fine without one.
+REPEATABLE_ROLES = {
+    "link",
+    "button",
+    "heading",
+    "listitem",
+    "row",
+    "cell",
+    "columnheader",
+    "option",
+    "img",
+    "textbox",
+    "combobox",
+}
+API_ASSERTIONS = {"expect_status", "expect_contract", "expect_json"}
 
 SYSTEM_PROMPT = """\
 You are a senior QA automation engineer. Translate ONE Gherkin scenario into a
-Playwright test plan, using ONLY the actions defined in the output schema.
+test plan, using ONLY the actions defined in the output schema.
 
-Rules:
+General rules:
 - Implement every step with at least one action, and set `step` to that step's [index].
-- "I am on the home page" means: goto "/".
 - Outcome steps (Then/And after Then) must be implemented with expect_* actions.
+- Do not add checks the scenario does not ask for.
+
+Browser (UI) rules:
+- "I am on the home page" means: goto "/". For other pages, goto the path quoted in the step.
 - Prefer locators by role + accessible name. Use css only as a last resort.
 - Menus usually live inside the "navigation" landmark: scope them with within.role="navigation".
-- The site UI is in Spanish. Use the literal texts quoted in the scenario.
+- Result and validation messages usually live in a region with role "status".
+- To type into a field, use fill and locate the field by its label.
+- "No X is shown" means expect_hidden.
+- The site UI is in Spanish. Use the literal texts quoted in the scenario, symbols included.
 - Labels may be rendered in uppercase by CSS: keep exact=false unless exactness matters.
+
+API rules (steps that say "through the API" or talk about responses):
+- Call the endpoint with api_get. expect_status, expect_contract and expect_json always
+  check the LAST api_get response, so they must come after it.
+- Use the API reference below for paths, query parameters, response fields and contracts.
+- Pass quoted values exactly as written, including spaces and letter case.
+- expect_json values must use real JSON types: true/false for booleans, numbers for numbers.
+- "every X" -> all_items_have; "a X logged as" -> any_item_has; "at least one" -> not_empty;
+  "no X" -> empty; "less than N hours ago" -> younger_than_hours.
 - Paths are site-relative and start with "/".
-- Do not add checks the scenario does not ask for.
 """
 
 
@@ -42,6 +75,14 @@ def render_scenario(scenario: Scenario) -> str:
         for row in step.data_table or []:
             lines.append("      | " + " | ".join(row) + " |")
     return "\n".join(lines)
+
+
+def api_reference() -> str:
+    """The API contracts, written for humans, double as context for the LLM."""
+    contracts_dir = Path(os.getenv("CONTRACTS_DIR", "docs/contracts"))
+    return "\n\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(contracts_dir.glob("*.md"))
+    )
 
 
 def find_plan_problems(plan: TestPlan, scenario: Scenario) -> list[str]:
@@ -63,19 +104,48 @@ def find_plan_problems(plan: TestPlan, scenario: Scenario) -> list[str]:
         problems.append(
             f"outcome steps must be verified with expect_* actions: {unasserted}"
         )
+
     if vague := [
         a.step
         for a in plan.actions
-        if a.action in SINGLE_TARGET_ACTIONS and a.locator.role and not a.locator.name
+        if a.action in SINGLE_TARGET_ACTIONS
+        and a.locator.role in REPEATABLE_ROLES
+        and not a.locator.name
     ]:
         problems.append(
             f"locators that target one element need role + name, at steps {vague}"
         )
+
+    first_api_get = next(
+        (i for i, a in enumerate(plan.actions) if a.action == "api_get"),
+        len(plan.actions),
+    )
+    if early := [
+        a.step
+        for i, a in enumerate(plan.actions)
+        if a.action in API_ASSERTIONS and i < first_api_get
+    ]:
+        problems.append(f"API assertions need a previous api_get, at steps {early}")
+
+    if stringly := [
+        a.step
+        for a in plan.actions
+        if a.action == "expect_json"
+        and isinstance(a.value, str)
+        and a.value.lower() in ("true", "false")
+    ]:
+        problems.append(
+            f"expect_json values must be JSON booleans (true/false), not strings, at steps {stringly}"
+        )
+
     return problems
 
 
 def build_messages(state: ScenarioState) -> list:
-    content = render_scenario(state["scenario"])
+    scenario = state["scenario"]
+    content = render_scenario(scenario)
+    if "@api" in scenario.tags and (reference := api_reference()):
+        content += f"\n\nAPI reference:\n{reference}"
     verdict = state.get("verdict")
     if verdict is not None and verdict.outcome == "test_defect" and state.get("plan"):
         content += (

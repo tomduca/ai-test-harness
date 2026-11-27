@@ -11,23 +11,30 @@ from ai_test_harness.state import ScenarioState
 # Lower number wins when several failures disagree (fix the test before reporting the site).
 PRIORITY: dict[str, int] = {"infra_error": 0, "test_defect": 1, "product_bug": 2}
 
-LOCATOR_ACTIONS = {"click", "expect_visible", "expect_text", "expect_items"}
+LOCATOR_ACTIONS = {"click", "fill", "expect_visible", "expect_text", "expect_items"}
 NOT_FOUND_MARKERS = (
     "element(s) not found",
     "resolved to 0 elements",
     "Actual value: []",
 )
+NETWORK_MARKERS = ("net::ERR_", "ENOTFOUND", "ECONNREFUSED", "ECONNRESET", "Timeout")
+# The plan asked for something that does not exist: the test is wrong, not the site.
+PLAN_MARKERS = ("api_get must come first", "not found in the response")
 MAX_REASON_ERROR_CHARS = 300
 
 
 def classify_failure(result: ActionResult) -> tuple[Outcome, str]:
-    """Map one failed action to an outcome, based on Playwright's error signature."""
+    """Map one failed action to an outcome, based on its error signature."""
     error = result.error or ""
 
-    if result.action == "goto" and ("net::ERR_" in error or "Timeout" in error):
+    if result.action in ("goto", "api_get") and any(
+        m in error for m in NETWORK_MARKERS
+    ):
         return "infra_error", "the site could not be reached"
     if "strict mode violation" in error:
         return "test_defect", "the locator matched several elements"
+    if any(marker in error for marker in PLAN_MARKERS):
+        return "test_defect", "the plan checks something the response does not have"
     if result.action in LOCATOR_ACTIONS and (
         any(marker in error for marker in NOT_FOUND_MARKERS)
         or ("Timeout" in error and "resolved to" not in error)
@@ -35,7 +42,7 @@ def classify_failure(result: ActionResult) -> tuple[Outcome, str]:
         # Known limitation: a removed element looks the same as a wrong locator.
         return "test_defect", "the locator matched no elements"
     if result.action.startswith("expect_"):
-        return "product_bug", "the element exists but the assertion failed"
+        return "product_bug", "the check ran on a real response or element and failed"
     return "product_bug", "unclassified failure, needs human review"
 
 

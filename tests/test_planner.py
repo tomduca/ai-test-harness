@@ -8,8 +8,12 @@ from ai_test_harness.nodes.planner import (
     render_scenario,
 )
 from ai_test_harness.schemas.plan import (
+    ApiGet,
     Click,
     ExpectItems,
+    ExpectJson,
+    ExpectStatus,
+    ExpectText,
     ExpectVisible,
     Goto,
     Locator,
@@ -145,3 +149,54 @@ def test_single_target_locators_need_a_name():
     assert problems == [
         "locators that target one element need role + name, at steps [0, 1]"
     ]
+
+
+def test_unnamed_unique_regions_are_allowed():
+    plan = TestPlan(
+        scenario_id="x",
+        actions=[
+            Goto(path="/", step=0),
+            ExpectText(locator=Locator(role="status"), text="¡Sí!", step=1),
+        ],
+    )
+    assert find_plan_problems(plan, SCENARIO) == []
+
+
+def test_api_assertions_need_a_previous_api_get():
+    plan = TestPlan(
+        scenario_id="x",
+        actions=[
+            ExpectStatus(status=200, step=0),
+            ApiGet(path="/api/qso", step=1),
+            ExpectStatus(status=200, step=1),
+        ],
+    )
+    assert "API assertions need a previous api_get, at steps [0]" in find_plan_problems(
+        plan, SCENARIO
+    )
+
+
+def test_json_booleans_must_not_be_strings():
+    plan = TestPlan(
+        scenario_id="x",
+        actions=[
+            ApiGet(path="/api/qso", step=0),
+            ExpectJson(field="found", op="equals", value="true", step=1),
+        ],
+    )
+    problems = find_plan_problems(plan, SCENARIO)
+    assert any("JSON booleans" in p for p in problems)
+
+
+def test_only_api_scenarios_get_the_api_reference(tmp_path, monkeypatch):
+    (tmp_path / "qso.md").write_text("GET /api/qso?call={callsign}")
+    monkeypatch.setenv("CONTRACTS_DIR", str(tmp_path))
+
+    api_llm = FakeLLM(GOOD_PLAN)
+    api_scenario = SCENARIO.model_copy(update={"tags": ["@api"]})
+    make_planner(api_llm)(initial_state(api_scenario))
+    assert "GET /api/qso?call={callsign}" in api_llm.calls[0][-1].content
+
+    ui_llm = FakeLLM(GOOD_PLAN)
+    make_planner(ui_llm)(initial_state(SCENARIO))
+    assert "API reference" not in ui_llm.calls[0][-1].content
