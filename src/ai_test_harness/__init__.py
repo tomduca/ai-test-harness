@@ -1,7 +1,26 @@
 def main() -> None:
-    from pathlib import Path
+    import sys
 
-    from ai_test_harness.specs_loader import load_specs
+    from ai_test_harness.runner import run_specs
 
-    for scenario in load_specs(Path("specs")):
-        print(f"{scenario.id:70} {len(scenario.steps)} steps  {scenario.tags}")
+    only = sys.argv[1] if len(sys.argv) > 1 else None
+    finals = run_specs(only=only)
+
+    for final in finals:
+        verdict = final["verdict"]
+        print(
+            f"{verdict.outcome:12} {verdict.scenario_id}  (attempts: {final['attempts']})"
+        )
+        if verdict.outcome != "pass":
+            print(f"             {verdict.reason[:240]}")
+
+    outcomes = [f["verdict"].outcome for f in finals]
+    print(
+        f"\n{len(finals)} scenarios: "
+        + ", ".join(
+            f"{outcomes.count(o)} {o}"
+            for o in ("pass", "product_bug", "test_defect", "infra_error")
+        )
+    )
+    # Non-zero exit code when anything did not pass: CI will rely on this.
+    sys.exit(0 if all(o == "pass" for o in outcomes) else 1)

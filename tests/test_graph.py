@@ -78,3 +78,9 @@ def test_product_bug_is_not_retried():
     result = run("product_bug")
     assert result["attempts"] == 1
     assert result["verdict"].outcome == "product_bug"
+
+
+def test_infra_error_is_not_retried():
+    result = run("infra_error")
+    assert result["attempts"] == 1
+    assert result["verdict"].outcome == "infra_error"

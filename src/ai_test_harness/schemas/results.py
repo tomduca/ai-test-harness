@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Outcome = Literal["pass", "product_bug", "test_defect"]
+Outcome = Literal["pass", "product_bug", "test_defect", "infra_error"]
 ActionStatus = Literal["passed", "failed", "skipped"]
 
 
